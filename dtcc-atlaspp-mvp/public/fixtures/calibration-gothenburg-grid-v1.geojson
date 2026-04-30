@@ -1,0 +1,164 @@
+{
+  "type": "FeatureCollection",
+  "name": "calibration-gothenburg-grid-v1",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "frame",
+        "kind": "line",
+        "label": "Calibration frame",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [11.920, 57.685],
+          [12.020, 57.685],
+          [12.020, 57.740],
+          [11.920, 57.740],
+          [11.920, 57.685]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "diag-nw-se",
+        "kind": "line",
+        "label": "Diagonal NW-SE",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [11.920, 57.740],
+          [12.020, 57.685]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "diag-sw-ne",
+        "kind": "line",
+        "label": "Diagonal SW-NE",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [11.920, 57.685],
+          [12.020, 57.740]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "center-horizontal",
+        "kind": "line",
+        "label": "Center horizontal",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [11.920, 57.7125],
+          [12.020, 57.7125]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "center-vertical",
+        "kind": "line",
+        "label": "Center vertical",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [11.970, 57.685],
+          [11.970, 57.740]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "corner-nw",
+        "kind": "point",
+        "label": "NW corner marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [11.920, 57.740]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "corner-ne",
+        "kind": "point",
+        "label": "NE corner marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [12.020, 57.740]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "corner-se",
+        "kind": "point",
+        "label": "SE corner marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [12.020, 57.685]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "corner-sw",
+        "kind": "point",
+        "label": "SW corner marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [11.920, 57.685]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "center",
+        "kind": "point",
+        "label": "Center marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [11.970, 57.7125]
+      }
+    }
+  ]
+}

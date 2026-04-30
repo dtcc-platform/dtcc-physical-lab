@@ -1,0 +1,237 @@
+@import "tailwindcss";
+
+@theme {
+  /* DTCC Brand Colors */
+  --color-dtcc-dark: #27252A;
+  --color-dtcc-orange: #E35A1D;
+  --color-dtcc-orange-dark: #c94d18;
+  --color-dtcc-orange-darker: #a84014;
+  --color-dtcc-yellow: #FADA36;
+  --color-dtcc-teal: #78C8BE;
+  --color-dtcc-white: #FFFFFF;
+  --color-dtcc-bg: #FAFAFA;
+  --color-dtcc-muted: #54545a;
+  --color-dtcc-eyebrow: #7a7a80;
+
+  /* Semantic color aliases */
+  --color-dtcc-navy: #1a1a2e;
+  --color-dtcc-navy-hover: #2d2d44;
+  --color-dtcc-blue: #78C8BE;
+  --color-dtcc-blue-dark: #5fb3a8;
+  --color-dtcc-blue-darker: #4a9e94;
+  --color-dtcc-red: #E35A1D;
+  --color-dtcc-red-dark: #c94d18;
+  --color-dtcc-red-darker: #a84014;
+  --color-dtcc-green: #78C8BE;
+  --color-dtcc-green-dark: #5fb3a8;
+  --color-dtcc-green-darker: #4a9e94;
+  --color-dtcc-gray: #7a7a80;
+  --color-dtcc-gray-dark: #54545a;
+  --color-dtcc-gray-darker: #3d3d42;
+  --color-dtcc-gray-light: #e8e8ea;
+  --color-dtcc-gray-lighter: #FAFAFA;
+  --color-dtcc-border: #d0d0d4;
+  --color-dtcc-border-light: #e8e8ea;
+
+  /* Typography - Montserrat */
+  --font-family-sans: 'Montserrat', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+
+  /* Typography Scale */
+  --font-size-xs: 0.6875rem;    /* 11px - badges, labels */
+  --font-size-sm: 0.8125rem;    /* 13px - body text */
+  --font-size-base: 0.875rem;   /* 14px - buttons, UI */
+  --font-size-md: 1rem;         /* 16px - headings */
+
+  /* Spacing System (4px grid) */
+  --spacing-1: 0.25rem;   /* 4px */
+  --spacing-2: 0.5rem;    /* 8px */
+  --spacing-3: 0.75rem;   /* 12px */
+  --spacing-4: 1rem;      /* 16px */
+  --spacing-6: 1.5rem;    /* 24px */
+
+  /* Semantic Colors */
+  --color-text-primary: var(--color-dtcc-dark);
+  --color-text-secondary: var(--color-dtcc-muted);
+  --color-bg-overlay: rgba(255, 255, 255, 0.95);
+}
+
+:root {
+  /* Recalibrated around a 1440x900 DPR-1 reference viewport. */
+  --atlas-edge-gap: clamp(8px, 0.83vw, 14px);
+  --atlas-panel-gap: clamp(6px, 0.69vw, 10px);
+
+  --atlas-topbar-height: clamp(38px, 4.67vh, 46px);
+  --atlas-topbar-inner-height: clamp(30px, 3.78vh, 36px);
+  --atlas-topbar-title-size: clamp(13px, 0.97vw, 15px);
+  --atlas-topbar-title-line-height: clamp(18px, 1.39vw, 22px);
+  --atlas-topbar-button-width: clamp(40px, 3.33vw, 48px);
+  --atlas-topbar-padding-left: clamp(10px, 0.76vw, 12px);
+  --atlas-topbar-padding-right: clamp(2px, 0.28vw, 4px);
+  --atlas-status-dot-size: clamp(7px, 0.56vw, 9px);
+  --atlas-topbar-menu-icon-width: clamp(24px, 1.81vw, 28px);
+  --atlas-topbar-menu-icon-height: clamp(18px, 1.39vw, 20px);
+
+  --atlas-sidebar-width: clamp(56px, 4.72vw, 68px);
+  --atlas-toolbar-natural-height: clamp(420px, 65vh, 590px);
+  --atlas-toolbar-padding-x: clamp(7px, 0.63vw, 10px);
+  --atlas-toolbar-padding-y: clamp(12px, 1.67vh, 16px);
+  --atlas-nav-item-width: clamp(40px, 4.44vmin, 48px);
+  --atlas-nav-item-height: clamp(42px, 4.89vmin, 50px);
+  --atlas-nav-icon-size: clamp(24px, 3.11vmin, 30px);
+
+  --atlas-bottom-bar-height: clamp(38px, 4.67vh, 46px);
+  --atlas-bottom-bar-padding-x: clamp(12px, 1.04vw, 16px);
+  --atlas-helper-font-size: clamp(13px, 1.04vw, 16px);
+  --atlas-helper-line-height: clamp(18px, 1.39vw, 22px);
+  --atlas-helper-icon-size: clamp(16px, 1.25vw, 19px);
+
+  --atlas-panel-width: clamp(272px, 20vw, 330px);
+  --atlas-panel-radius: clamp(16px, 1.39vw, 22px);
+  --atlas-panel-padding: clamp(12px, 0.9vw, 16px);
+  --atlas-panel-inner-gap: clamp(6px, 0.49vw, 8px);
+  --atlas-panel-header-height: clamp(40px, 4.44vh, 48px);
+  --atlas-panel-collapsed-height: calc(var(--atlas-panel-header-height) + (var(--atlas-panel-padding) * 2));
+  --atlas-panel-header-title-size: clamp(15px, 1.11vw, 18px);
+  --atlas-panel-header-line-height: clamp(20px, 1.53vw, 24px);
+  --atlas-panel-action-size: clamp(30px, 2.5vw, 36px);
+  --atlas-panel-action-icon-size: clamp(16px, 1.39vw, 20px);
+
+  --atlas-session-font-size: clamp(13px, 0.97vw, 15px);
+  --atlas-session-line-height: clamp(18px, 1.39vw, 22px);
+  --atlas-session-icon-size: clamp(16px, 1.25vw, 20px);
+  --atlas-session-input-width: clamp(68px, 5.56vw, 84px);
+  --atlas-session-share-width: clamp(160px, 14vw, 220px);
+
+  --atlas-tooltip-font-size: clamp(10px, 0.76vw, 11px);
+  --atlas-body-text-size: clamp(12px, 0.9vw, 14px);
+  --atlas-body-line-height: clamp(18px, 1.39vw, 20px);
+  --atlas-caption-text-size: clamp(10px, 0.76vw, 12px);
+  --atlas-caption-line-height: clamp(14px, 1.11vw, 17px);
+  --atlas-control-height: clamp(34px, 4vh, 40px);
+  --atlas-control-radius: clamp(10px, 0.76vw, 12px);
+  --atlas-control-padding-x: clamp(10px, 0.83vw, 12px);
+  --atlas-card-padding-x: clamp(10px, 0.83vw, 12px);
+  --atlas-card-padding-y: clamp(10px, 1.11vh, 12px);
+  --atlas-layer-tag-gap: clamp(8px, 0.69vw, 10px);
+  --atlas-layer-tag-height: clamp(44px, 4.89vh, 50px);
+  --atlas-layer-tag-radius: clamp(18px, 1.39vw, 24px);
+  --atlas-layer-tag-button-size: clamp(32px, 2.5vw, 38px);
+  --atlas-layer-tag-title-size: clamp(15px, 1.11vw, 18px);
+  --atlas-layer-tag-title-line-height: clamp(20px, 1.46vw, 24px);
+  --atlas-chat-send-size: clamp(32px, 2.5vw, 36px);
+
+  --atlas-layout-top: calc(var(--atlas-edge-gap) + var(--atlas-topbar-height) + var(--atlas-panel-gap));
+  --atlas-layout-bottom-reserve: calc(var(--atlas-edge-gap) + var(--atlas-bottom-bar-height) + var(--atlas-panel-gap));
+  --atlas-docked-panel-height: calc(100dvh - var(--atlas-layout-top) - var(--atlas-layout-bottom-reserve));
+}
+
+/* Base typography */
+body {
+  font-family: var(--font-family-sans);
+  color: var(--color-dtcc-dark);
+  background: var(--color-dtcc-bg);
+}
+
+.scrollbar-subtle::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-subtle::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 2px;
+}
+
+.scrollbar-subtle:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* Spinner animation */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(227, 90, 29, 0.3);
+  border-top-color: #E35A1D;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Indeterminate progress bar animation */
+@keyframes progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+.animate-progress-indeterminate {
+  width: 25%;
+  animation: progress-indeterminate 1.5s ease-in-out infinite;
+}
+
+/* MapLibre control overrides */
+.maplibregl-ctrl-group {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-radius: 0.75rem !important;
+  border: 1px solid rgba(0, 0, 0, 0.05) !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+  overflow: hidden !important;
+}
+
+.maplibregl-ctrl-group button {
+  width: 36px !important;
+  height: 36px !important;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid rgba(0, 0, 0, 0.05) !important;
+}
+
+.maplibregl-ctrl-attrib {
+  background: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  font-size: 11px !important;
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+    border-top-color: #E35A1D;
+  }
+
+  .animate-progress-indeterminate {
+    animation: none;
+    width: 100%;
+  }
+
+  .animate-slide-in,
+  .animate-slide-out {
+    animation: none;
+  }
+
+  .animate-spin {
+    animation: none;
+  }
+}
+
+/* MVP-specific additions */
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  font-family: var(--font-family-sans);
+}
+
+body {
+  background: var(--color-dtcc-bg);
+  color: var(--color-dtcc-dark);
+}

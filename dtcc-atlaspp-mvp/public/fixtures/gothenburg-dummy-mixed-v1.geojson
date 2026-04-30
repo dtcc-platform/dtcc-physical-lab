@@ -1,0 +1,90 @@
+{
+  "type": "FeatureCollection",
+  "name": "gothenburg-dummy-mixed-v1",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "district-alpha",
+        "kind": "polygon",
+        "label": "Dummy district",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [11.948, 57.700],
+            [11.979, 57.695],
+            [11.994, 57.713],
+            [11.964, 57.724],
+            [11.948, 57.700]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "route-beta",
+        "kind": "line",
+        "label": "Dummy route",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [11.940, 57.704],
+          [11.955, 57.709],
+          [11.970, 57.707],
+          [11.986, 57.715],
+          [12.000, 57.721]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "stop-1",
+        "kind": "point",
+        "label": "North marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [11.966, 57.721]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "stop-2",
+        "kind": "point",
+        "label": "Center marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [11.972, 57.710]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "stop-3",
+        "kind": "point",
+        "label": "Southwest marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [11.952, 57.702]
+      }
+    }
+  ]
+}
