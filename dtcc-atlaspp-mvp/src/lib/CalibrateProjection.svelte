@@ -2,6 +2,7 @@
   import { featureCollectionBbox } from './geojson';
   import { featuresToRenderables, type Renderable } from './geojsonRender';
   import { solveHomography, toMatrix3d, isDegenerate } from './homography';
+  import { scaleFactor } from './scaleFactor';
   import type { Dataset, Calibration } from './storage';
 
   let { dataset, calibration } = $props<{
@@ -22,14 +23,6 @@
   });
 
   const PADDING_PX = 40;
-
-  // Resolution scale for one axis: ratio of current to saved viewport size,
-  // clamped to identity when the saved dimension is non-positive (corrupt save
-  // or uninitialized). Window dimensions are never legitimately 0, so the
-  // <= 0 guard only fires on bad data.
-  function scaleFactor(saved: number, current: number): number {
-    return saved > 0 ? current / saved : 1;
-  }
 
   // Same square reference frame as steps 3/4. The saved homography is
   // re-solved against this current-viewport square below.

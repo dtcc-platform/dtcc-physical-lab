@@ -1,14 +1,26 @@
 <script lang="ts">
   import { validateGeoJSON, defaultStyle, type FeatureCollection } from './geojson';
 
-  let { dataset, nextDisabled = false, autoHide = true, onLoadDataset, onClearDataset, onSetColor, onNext } = $props<{
+  let {
+    dataset,
+    nextDisabled = false,
+    autoHide = true,
+    backHidden = false,
+    onLoadDataset,
+    onClearDataset,
+    onSetColor,
+    onNext,
+    onBack,
+  } = $props<{
     dataset: { filename: string; geojson: FeatureCollection; style: { color: string } } | null;
     nextDisabled?: boolean;
     autoHide?: boolean;
+    backHidden?: boolean;
     onLoadDataset: (d: { filename: string; geojson: FeatureCollection; style: { color: string } }) => void;
     onClearDataset: () => void;
     onSetColor: (color: string) => void;
     onNext: () => void;
+    onBack?: () => void;
   }>();
 
   let visible = $state(true);
@@ -164,6 +176,12 @@
     </div>
 
     <div class="mt-3 flex gap-2">
+      {#if onBack && !backHidden}
+        <button
+          class="px-3 py-1 text-xs rounded bg-dtcc-gray-light"
+          onclick={onBack}
+        >Back</button>
+      {/if}
       <button
         class="px-3 py-1 text-xs rounded bg-dtcc-muted text-white disabled:opacity-40"
         disabled={nextDisabled}

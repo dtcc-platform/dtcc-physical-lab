@@ -5,6 +5,7 @@
   import CalibrateCorners from './lib/CalibrateCorners.svelte';
   import CalibrateProjection from './lib/CalibrateProjection.svelte';
   import ControlPanel from './lib/ControlPanel.svelte';
+  import { scaleFactor } from './lib/scaleFactor';
   import {
     loadDataset,
     saveDataset,
@@ -114,10 +115,53 @@
     }
   }
 
+  function handleBack() {
+    if (!dataset) return;
+    if (step === 2) {
+      step = 1;
+    } else if (step === 3) {
+      step = 2;
+    } else if (step === 4) {
+      step = 3;
+    } else if (step === 5) {
+      // Non-destructive: keep `calibration` in localStorage. Seed App-level
+      // pan and pendingCorners from the saved calibration, rescaled from the
+      // saved viewport into the current one. CalibrateCorners will re-derive
+      // homography on mount via its $effect, so we leave `homography: null`
+      // here.
+      if (!calibration) {
+        step = 4;
+        return;
+      }
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      const sx = scaleFactor(calibration.sourceWidth, w);
+      const sy = scaleFactor(calibration.sourceHeight, h);
+      panX = calibration.panX * sx;
+      panY = calibration.panY * sy;
+      pendingCorners = {
+        cornerDst: [
+          [calibration.cornerDst[0][0] * sx, calibration.cornerDst[0][1] * sy],
+          [calibration.cornerDst[1][0] * sx, calibration.cornerDst[1][1] * sy],
+          [calibration.cornerDst[2][0] * sx, calibration.cornerDst[2][1] * sy],
+          [calibration.cornerDst[3][0] * sx, calibration.cornerDst[3][1] * sy],
+        ],
+        homography: null,
+        sourceWidth: w,
+        sourceHeight: h,
+      };
+      step = 4;
+    }
+  }
+
   const nextDisabled = $derived(
     !dataset
     || step === 5
     || (step === 4 && (!pendingCorners || pendingCorners.homography === null))
+  );
+
+  const seedCorners = $derived(
+    pendingCorners?.cornerDst.map(([x, y]) => ({ x, y })),
   );
 </script>
 
@@ -129,7 +173,7 @@
   <CalibratePan {dataset} {panX} {panY} onPan={setPan} />
 {:else if step === 4 && dataset}
   {#key dataset.uploadedAt}
-    <CalibrateCorners {dataset} {panX} {panY} onCornersChange={setPendingCorners} />
+    <CalibrateCorners {dataset} {panX} {panY} {seedCorners} onCornersChange={setPendingCorners} />
   {/key}
 {:else if step === 5 && dataset && calibration}
   <CalibrateProjection {dataset} {calibration} />
@@ -138,8 +182,10 @@
   {dataset}
   {nextDisabled}
   autoHide={false}
+  backHidden={step === 1 || dataset === null}
   onLoadDataset={handleLoadDataset}
   onClearDataset={handleClearDataset}
   onSetColor={handleSetColor}
   onNext={handleNext}
+  onBack={handleBack}
 />

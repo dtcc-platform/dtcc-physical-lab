@@ -4,7 +4,7 @@
   import { solveHomography, toMatrix3d, isDegenerate } from './homography';
   import type { Dataset } from './storage';
 
-  let { dataset, panX, panY, onCornersChange } = $props<{
+  let { dataset, panX, panY, onCornersChange, seedCorners } = $props<{
     dataset: Dataset;
     panX: number;
     panY: number;
@@ -14,6 +14,7 @@
       sourceWidth: number,
       sourceHeight: number,
     ) => void;
+    seedCorners?: { x: number; y: number }[];
   }>();
 
   let width = $state(window.innerWidth);
@@ -60,7 +61,28 @@
     ];
   }
 
-  let corners: CornerQuad = $state(initialCorners());
+  // When App provides `seedCorners` (e.g. on 4→3→4 preservation, or after a
+  // 5→4 back navigation that rescales the saved calibration into the current
+  // viewport), use those as the starting handle positions. Otherwise fall back
+  // to the viewport-derived default. Only the value at mount matters; later
+  // updates to `seedCorners` are ignored — the wizard re-creates this
+  // component when the user navigates away and back, which is the
+  // re-initialization boundary we want. Wrapping the read in a function keeps
+  // Svelte 5's static analyzer from flagging the prop access as a reactive
+  // read inside a $state initializer (state_referenced_locally).
+  function startingCorners(): CornerQuad {
+    if (seedCorners && seedCorners.length === 4) {
+      return [
+        { x: seedCorners[0].x, y: seedCorners[0].y },
+        { x: seedCorners[1].x, y: seedCorners[1].y },
+        { x: seedCorners[2].x, y: seedCorners[2].y },
+        { x: seedCorners[3].x, y: seedCorners[3].y },
+      ];
+    }
+    return initialCorners();
+  }
+
+  let corners: CornerQuad = $state(startingCorners());
   let dragIndex: number | null = $state(null);
 
   // Square corners in screen space — the homography src.
