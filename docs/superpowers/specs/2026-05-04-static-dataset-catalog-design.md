@@ -142,7 +142,7 @@ onLoadSample: (d: {
 }) => void;
 ```
 
-`ControlPanel` builds this payload by copying `projectionBbox` and `id` from the manifest entry after the fetched GeoJSON validates.
+`ControlPanel` builds this payload from `filename` = the manifest `file`, `geojson` = the validated fetched FeatureCollection, `style` = `defaultStyle()`, `projectionBbox` = the manifest entry `projectionBbox`, and `catalogId` = the manifest entry `id`.
 
 ## App State Behavior
 
