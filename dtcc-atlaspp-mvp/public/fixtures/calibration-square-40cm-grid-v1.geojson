@@ -1,0 +1,80 @@
+{
+  "type": "FeatureCollection",
+  "name": "calibration-square-40cm-grid-v1",
+  "crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::3006" } },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "id": "frame", "kind": "line", "label": "Calibration frame", "source": "synthetic-fixture" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [319950, 6397950],
+          [320050, 6397950],
+          [320050, 6398050],
+          [319950, 6398050],
+          [319950, 6397950]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": "diag-sw-ne", "kind": "line", "label": "Diagonal SW-NE", "source": "synthetic-fixture" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[319950, 6397950], [320050, 6398050]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": "diag-nw-se", "kind": "line", "label": "Diagonal NW-SE", "source": "synthetic-fixture" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[319950, 6398050], [320050, 6397950]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": "vline-1", "kind": "line", "label": "Vertical 25m", "source": "synthetic-fixture" },
+      "geometry": { "type": "LineString", "coordinates": [[319975, 6397950], [319975, 6398050]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": "vline-2", "kind": "line", "label": "Vertical 50m", "source": "synthetic-fixture" },
+      "geometry": { "type": "LineString", "coordinates": [[320000, 6397950], [320000, 6398050]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": "vline-3", "kind": "line", "label": "Vertical 75m", "source": "synthetic-fixture" },
+      "geometry": { "type": "LineString", "coordinates": [[320025, 6397950], [320025, 6398050]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": "hline-1", "kind": "line", "label": "Horizontal 25m", "source": "synthetic-fixture" },
+      "geometry": { "type": "LineString", "coordinates": [[319950, 6397975], [320050, 6397975]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": "hline-2", "kind": "line", "label": "Horizontal 50m", "source": "synthetic-fixture" },
+      "geometry": { "type": "LineString", "coordinates": [[319950, 6398000], [320050, 6398000]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": "hline-3", "kind": "line", "label": "Horizontal 75m", "source": "synthetic-fixture" },
+      "geometry": { "type": "LineString", "coordinates": [[319950, 6398025], [320050, 6398025]] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "id": "nw-marker", "kind": "polygon", "label": "NW orientation marker", "source": "synthetic-fixture" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [319952, 6398045],
+          [319970, 6398045],
+          [319952, 6398030],
+          [319952, 6398045]
+        ]]
+      }
+    }
+  ]
+}

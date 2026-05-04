@@ -15,7 +15,7 @@ beforeEach(() => {
 
 describe('dataset', () => {
   const d: Dataset = {
-    version: 1,
+    version: 2,
     filename: 'test.geojson',
     geojson: { type: 'FeatureCollection', features: [] } as any,
     style: { color: '#38bdf8' },
@@ -64,7 +64,7 @@ describe('dataset', () => {
 
 describe('calibration', () => {
   const c: Calibration = {
-    version: 1,
+    version: 2,
     panX: 5,
     panY: -10,
     cornerDst: [[100, 100], [900, 110], [905, 700], [110, 695]],
@@ -84,7 +84,7 @@ describe('calibration', () => {
   });
 
   it('returns null on version mismatch', () => {
-    localStorage.setItem('dtcc-atlaspp-mvp.calibration', JSON.stringify({ ...c, version: 2 }));
+    localStorage.setItem('dtcc-atlaspp-mvp.calibration', JSON.stringify({ ...c, version: 99 }));
     expect(loadCalibration()).toBeNull();
   });
 
@@ -101,6 +101,39 @@ describe('calibration', () => {
   it('clearCalibration removes the stored value', () => {
     saveCalibration(c);
     clearCalibration();
+    expect(loadCalibration()).toBeNull();
+  });
+});
+
+describe('migration: version 1 → 2', () => {
+  it('a v1 dataset blob in localStorage is rejected by loadDataset', () => {
+    localStorage.setItem(
+      'dtcc-atlaspp-mvp.dataset',
+      JSON.stringify({
+        version: 1,
+        filename: 'old.geojson',
+        geojson: { type: 'FeatureCollection', features: [] },
+        style: { color: '#38bdf8' },
+        uploadedAt: '2026-04-22T10:00:00.000Z',
+      }),
+    );
+    expect(loadDataset()).toBeNull();
+  });
+
+  it('a v1 calibration blob in localStorage is rejected by loadCalibration', () => {
+    localStorage.setItem(
+      'dtcc-atlaspp-mvp.calibration',
+      JSON.stringify({
+        version: 1,
+        panX: 0,
+        panY: 0,
+        cornerDst: [[0, 0], [10, 0], [10, 10], [0, 10]],
+        homography: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        sourceWidth: 100,
+        sourceHeight: 100,
+        savedAt: '2026-04-22T10:00:00.000Z',
+      }),
+    );
     expect(loadCalibration()).toBeNull();
   });
 });

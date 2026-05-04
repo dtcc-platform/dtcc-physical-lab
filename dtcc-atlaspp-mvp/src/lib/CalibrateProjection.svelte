@@ -57,17 +57,15 @@
     return toMatrix3d(h);
   });
 
-  // Equirectangular fit-into-square + saved pan offset. Pan is also in saved
-  // viewport pixel space, so it gets scaled the same way.
+  // Direct fit-into-square + saved pan offset. EPSG:3006 is metric Cartesian,
+  // so no cos-lat correction. Pan is in saved viewport pixel space, so it
+  // gets scaled the same way as cornerDst.
   const projection = $derived.by(() => {
     const bbox = featureCollectionBbox(dataset.geojson);
     if (!bbox) return null;
-    const [minLon, minLat, maxLon, maxLat] = bbox;
-    const lonRange = maxLon - minLon;
-    const latRange = maxLat - minLat;
-    const cosLat = Math.cos(((minLat + maxLat) / 2) * (Math.PI / 180));
-    const dataW = lonRange * cosLat;
-    const dataH = latRange;
+    const [minX, minY, maxX, maxY] = bbox;
+    const dataW = maxX - minX;
+    const dataH = maxY - minY;
 
     const sq = square;
     const scaleW = dataW > 0 ? sq.side / dataW : Infinity;
@@ -81,9 +79,9 @@
     const sy = scaleFactor(calibration.sourceHeight, height);
     const ox = baseOffsetX + calibration.panX * sx;
     const oy = baseOffsetY + calibration.panY * sy;
-    return (lon: number, lat: number): [number, number] => [
-      ox + (lon - minLon) * cosLat * scale,
-      oy + (maxLat - lat) * scale,
+    return (x: number, y: number): [number, number] => [
+      ox + (x - minX) * scale,
+      oy + (maxY - y) * scale,
     ];
   });
 

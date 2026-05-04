@@ -2,6 +2,7 @@
   import maplibregl, { type Map as MLMap } from 'maplibre-gl';
   import { untrack } from 'svelte';
   import { featureCollectionBbox, type FeatureCollection } from './geojson';
+  import { swerefToWgs84, reprojectFcToWgs84 } from './sweref99tm';
   import type { Dataset } from './storage';
 
   let { dataset } = $props<{ dataset: Dataset }>();
@@ -55,7 +56,9 @@
   function fitToFc(m: MLMap, fc: FeatureCollection) {
     const bbox = featureCollectionBbox(fc);
     if (!bbox) return;
-    m.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 60, duration: 0 });
+    const [minLonW, minLatW] = swerefToWgs84(bbox[0], bbox[1]);
+    const [maxLonW, maxLatW] = swerefToWgs84(bbox[2], bbox[3]);
+    m.fitBounds([[minLonW, minLatW], [maxLonW, maxLatW]], { padding: 60, duration: 0 });
   }
 
   // Map create — runs once. Reads props via untrack so prop changes don't
@@ -70,8 +73,9 @@
     });
     map.once('load', () => {
       if (!map) return;
+      const fcWgs = reprojectFcToWgs84(initial.geojson);
       fitToFc(map, initial.geojson);
-      applyDataLayers(map, initial.geojson, initial.style.color);
+      applyDataLayers(map, fcWgs, initial.style.color);
       initialized = true;
     });
     return () => {
@@ -85,8 +89,9 @@
   $effect(() => {
     const d = dataset;
     if (!initialized || !map) return;
+    const fcWgs = reprojectFcToWgs84(d.geojson);
     fitToFc(map, d.geojson);
-    applyDataLayers(map, d.geojson, d.style.color);
+    applyDataLayers(map, fcWgs, d.style.color);
   });
 </script>
 

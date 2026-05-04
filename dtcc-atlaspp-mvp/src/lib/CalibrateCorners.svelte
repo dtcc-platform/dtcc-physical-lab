@@ -172,17 +172,14 @@
     corners = initialCorners();
   }
 
-  // Equirectangular fit-into-square + pan offset, identical to step 3.
-  // The CSS matrix3d transform is then applied on top to warp the rendered SVG.
+  // Direct fit-into-square + pan offset, identical to step 3. The CSS
+  // matrix3d transform is then applied on top to warp the rendered SVG.
   const projection = $derived.by(() => {
     const bbox = featureCollectionBbox(dataset.geojson);
     if (!bbox) return null;
-    const [minLon, minLat, maxLon, maxLat] = bbox;
-    const lonRange = maxLon - minLon;
-    const latRange = maxLat - minLat;
-    const cosLat = Math.cos(((minLat + maxLat) / 2) * (Math.PI / 180));
-    const dataW = lonRange * cosLat;
-    const dataH = latRange;
+    const [minX, minY, maxX, maxY] = bbox;
+    const dataW = maxX - minX;
+    const dataH = maxY - minY;
 
     const sq = square;
     const scaleW = dataW > 0 ? sq.side / dataW : Infinity;
@@ -194,9 +191,9 @@
 
     const ox = baseOffsetX + panX;
     const oy = baseOffsetY + panY;
-    return (lon: number, lat: number): [number, number] => [
-      ox + (lon - minLon) * cosLat * scale,
-      oy + (maxLat - lat) * scale,
+    return (x: number, y: number): [number, number] => [
+      ox + (x - minX) * scale,
+      oy + (maxY - y) * scale,
     ];
   });
 

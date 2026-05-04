@@ -1,6 +1,6 @@
 import type { FeatureCollection } from './geojson';
 
-type Project = (lon: number, lat: number) => [number, number];
+type Project = (x: number, y: number) => [number, number];
 
 export type Renderable =
   | { kind: 'polygon'; d: string }
@@ -23,8 +23,8 @@ function ringPath(coords: [number, number][], project: Project, close: boolean):
 function emit(geometry: Geometry, project: Project, out: Renderable[]): void {
   switch (geometry.type) {
     case 'Point': {
-      const [lon, lat] = geometry.coordinates as [number, number];
-      const [cx, cy] = project(lon, lat);
+      const [x, y] = geometry.coordinates as [number, number];
+      const [cx, cy] = project(x, y);
       out.push({ kind: 'point', cx, cy });
       return;
     }

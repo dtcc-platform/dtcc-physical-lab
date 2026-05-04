@@ -1,7 +1,7 @@
 import type { FeatureCollection } from './geojson';
 
 export type Dataset = {
-  version: 1;
+  version: 2;
   filename: string;
   geojson: FeatureCollection;
   style: { color: string };
@@ -9,7 +9,7 @@ export type Dataset = {
 };
 
 export type Calibration = {
-  version: 1;
+  version: 2;
   panX: number;
   panY: number;
   cornerDst: [[number, number], [number, number], [number, number], [number, number]];
@@ -29,7 +29,7 @@ const KEY_CALIBRATION = 'dtcc-atlaspp-mvp.calibration';
 function isDataset(v: unknown): v is Dataset {
   if (!v || typeof v !== 'object') return false;
   const d = v as Record<string, unknown>;
-  if (d.version !== 1) return false;
+  if (d.version !== 2) return false;
   if (typeof d.filename !== 'string') return false;
   // Validate the FeatureCollection shape we actually iterate over downstream.
   // A partially-written save where geojson is `{}` or `{ features: null }`
@@ -54,7 +54,7 @@ function isCalibration(v: unknown): v is Calibration {
   if (!v || typeof v !== 'object') return false;
   const c = v as Record<string, unknown>;
   return (
-    c.version === 1 &&
+    c.version === 2 &&
     typeof c.panX === 'number' &&
     typeof c.panY === 'number' &&
     isCornerDst(c.cornerDst) &&

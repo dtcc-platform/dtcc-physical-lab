@@ -71,17 +71,15 @@
     };
   });
 
-  // Equirectangular fit-into-square + pan offset, with cos(centerLat) longitude
-  // correction so the rendered aspect matches Web Mercator at the dataset's latitude.
+  // Direct fit-into-square + pan offset. EPSG:3006 is metric Cartesian, no
+  // cos-lat correction; the y-axis flip stays because northing grows
+  // northward but screen Y grows downward.
   const projection = $derived.by(() => {
     const bbox = featureCollectionBbox(dataset.geojson);
     if (!bbox) return null;
-    const [minLon, minLat, maxLon, maxLat] = bbox;
-    const lonRange = maxLon - minLon;
-    const latRange = maxLat - minLat;
-    const cosLat = Math.cos(((minLat + maxLat) / 2) * (Math.PI / 180));
-    const dataW = lonRange * cosLat;
-    const dataH = latRange;
+    const [minX, minY, maxX, maxY] = bbox;
+    const dataW = maxX - minX;
+    const dataH = maxY - minY;
 
     const sq = square;
     const scaleW = dataW > 0 ? sq.side / dataW : Infinity;
@@ -93,9 +91,9 @@
 
     const ox = baseOffsetX + panX;
     const oy = baseOffsetY + panY;
-    return (lon: number, lat: number): [number, number] => [
-      ox + (lon - minLon) * cosLat * scale,
-      oy + (maxLat - lat) * scale,
+    return (x: number, y: number): [number, number] => [
+      ox + (x - minX) * scale,
+      oy + (maxY - y) * scale,
     ];
   });
 

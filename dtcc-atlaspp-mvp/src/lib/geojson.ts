@@ -1,7 +1,9 @@
 // GeoJSON validation for the MVP. The single hard requirement is that the
-// input is WGS84 (EPSG:4326 / CRS84). Modern GeoJSON typically omits the
-// `crs` field, so relying on it is not enough — we also walk the first 50
-// features' coordinates and assert |lon| <= 180 and |lat| <= 90.
+// input is EPSG:3006 (SWEREF99 TM). Files must declare CRS via the
+// FeatureCollection `crs` field; absent or non-3006 names are rejected. We
+// also walk the first 50 features' coordinates and reject anything that looks
+// like WGS84 degrees (|x| <= 180 && |y| <= 90) — defense in depth against a
+// mislabeled file.
 
 export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 
@@ -15,19 +17,18 @@ export type FeatureCollection = {
   crs?: { type: string; properties: { name: string } };
 };
 
-const WGS84_NAMES = [
-  'urn:ogc:def:crs:EPSG::4326',
-  'urn:ogc:def:crs:OGC::CRS84',
-  'EPSG:4326',
-  'CRS84',
+const SWEREF99_TM_NAMES = [
+  'urn:ogc:def:crs:EPSG::3006',
+  'EPSG:3006',
+  'SWEREF99 TM',
 ];
 
 function checkCoord(pair: unknown): string | null {
-  if (!Array.isArray(pair) || pair.length < 2) return 'coordinate entry is not [lon, lat]';
-  const [lon, lat] = pair as [unknown, unknown];
-  if (typeof lon !== 'number' || typeof lat !== 'number') return 'coordinate entry has non-number values';
-  if (Math.abs(lon) > 180 || Math.abs(lat) > 90) {
-    return `coordinates outside WGS84 range (saw [${lon}, ${lat}]) — reproject to EPSG:4326 first (common cause: Swedish SWEREF99 TM files use meters like [317000, 6398000] and will fail this check)`;
+  if (!Array.isArray(pair) || pair.length < 2) return 'coordinate entry is not [easting, northing]';
+  const [x, y] = pair as [unknown, unknown];
+  if (typeof x !== 'number' || typeof y !== 'number') return 'coordinate entry has non-number values';
+  if (Math.abs(x) <= 180 && Math.abs(y) <= 90) {
+    return `coordinates look like WGS84 degrees (saw [${x}, ${y}]) — this app expects EPSG:3006 (SWEREF99 TM, meters). Reproject first: ogr2ogr -t_srs EPSG:3006 out.geojson in.geojson`;
   }
   return null;
 }
@@ -59,13 +60,25 @@ export function validateGeoJSON(text: string): Result<FeatureCollection, string>
     return { ok: false, error: `top-level type must be "FeatureCollection" (got ${JSON.stringify(obj.type)})` };
   }
 
-  // Optional crs field: if present, must name WGS84.
-  if (obj.crs && typeof obj.crs === 'object') {
+  // Required crs field: must name SWEREF99 TM (EPSG:3006).
+  if (!obj.crs || typeof obj.crs !== 'object') {
+    return {
+      ok: false,
+      error:
+        'missing crs field — this app requires EPSG:3006 (SWEREF99 TM). Add: { "crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::3006" } } }',
+    };
+  }
+  {
     const name = ((obj.crs as { properties?: { name?: unknown } }).properties?.name ?? '') as string;
-    if (name && !WGS84_NAMES.some((w) => name === w || name.toUpperCase().includes('4326') || name.toUpperCase().includes('CRS84'))) {
+    const looksLikeSweref =
+      typeof name === 'string' &&
+      (SWEREF99_TM_NAMES.some((w) => name === w) ||
+        name.toUpperCase().includes('3006') ||
+        name.toUpperCase().includes('SWEREF99 TM'));
+    if (!looksLikeSweref) {
       return {
         ok: false,
-        error: `unsupported CRS ${name} — reproject to EPSG:4326 / CRS84 first`,
+        error: `crs field does not name EPSG:3006 (got "${name}") — this app requires SWEREF99 TM`,
       };
     }
   }
@@ -104,14 +117,14 @@ export function validateGeoJSON(text: string): Result<FeatureCollection, string>
 
 type Bbox = [number, number, number, number];
 
-function geomBbox(coords: unknown, out: { minLon: number; minLat: number; maxLon: number; maxLat: number }) {
+function geomBbox(coords: unknown, out: { minX: number; minY: number; maxX: number; maxY: number }) {
   if (!Array.isArray(coords)) return;
   if (coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
-    const [lon, lat] = coords as [number, number];
-    if (lon < out.minLon) out.minLon = lon;
-    if (lat < out.minLat) out.minLat = lat;
-    if (lon > out.maxLon) out.maxLon = lon;
-    if (lat > out.maxLat) out.maxLat = lat;
+    const [x, y] = coords as [number, number];
+    if (x < out.minX) out.minX = x;
+    if (y < out.minY) out.minY = y;
+    if (x > out.maxX) out.maxX = x;
+    if (y > out.maxY) out.maxY = y;
     return;
   }
   for (const child of coords) geomBbox(child, out);
@@ -119,10 +132,10 @@ function geomBbox(coords: unknown, out: { minLon: number; minLat: number; maxLon
 
 export function featureCollectionBbox(fc: FeatureCollection): Bbox | null {
   const acc = {
-    minLon: Infinity,
-    minLat: Infinity,
-    maxLon: -Infinity,
-    maxLat: -Infinity,
+    minX: Infinity,
+    minY: Infinity,
+    maxX: -Infinity,
+    maxY: -Infinity,
   };
   function walk(g: { type: string; coordinates?: unknown; geometries?: unknown[] } | null) {
     if (!g) return;
@@ -135,8 +148,8 @@ export function featureCollectionBbox(fc: FeatureCollection): Bbox | null {
     geomBbox(g.coordinates, acc);
   }
   for (const f of fc.features) walk(f.geometry);
-  if (!isFinite(acc.minLon)) return null;
-  return [acc.minLon, acc.minLat, acc.maxLon, acc.maxLat];
+  if (!isFinite(acc.minX)) return null;
+  return [acc.minX, acc.minY, acc.maxX, acc.maxY];
 }
 
 export function defaultStyle(): { color: string } {

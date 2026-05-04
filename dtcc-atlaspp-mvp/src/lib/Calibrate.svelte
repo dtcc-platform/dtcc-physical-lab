@@ -20,19 +20,16 @@
 
   const PADDING_PX = 40;
 
-  // Local equirectangular fit: 1° lat = scale px, 1° lon = scale * cos(centerLat) px.
-  // Cosine correction keeps the aspect ratio physically correct at high latitudes
-  // (without it, Gothenburg ~57.7°N would render ~46% horizontally squished).
+  // EPSG:3006 (SWEREF99 TM) is metric Cartesian, so the projection is a
+  // direct fit-into-viewport. No cosine-latitude correction. Y-axis flip
+  // because northing grows northward but screen Y grows downward.
   const projection = $derived.by(() => {
     if (!dataset) return null;
     const bbox = featureCollectionBbox(dataset.geojson);
     if (!bbox) return null;
-    const [minLon, minLat, maxLon, maxLat] = bbox;
-    const lonRange = maxLon - minLon;
-    const latRange = maxLat - minLat;
-    const cosLat = Math.cos(((minLat + maxLat) / 2) * (Math.PI / 180));
-    const dataW = lonRange * cosLat;
-    const dataH = latRange;
+    const [minX, minY, maxX, maxY] = bbox;
+    const dataW = maxX - minX;
+    const dataH = maxY - minY;
 
     const availW = Math.max(1, width - 2 * PADDING_PX);
     const availH = Math.max(1, height - 2 * PADDING_PX);
@@ -43,9 +40,9 @@
     const offsetX = (width - dataW * scale) / 2;
     const offsetY = (height - dataH * scale) / 2;
 
-    return (lon: number, lat: number): [number, number] => [
-      offsetX + (lon - minLon) * cosLat * scale,
-      offsetY + (maxLat - lat) * scale,
+    return (x: number, y: number): [number, number] => [
+      offsetX + (x - minX) * scale,
+      offsetY + (maxY - y) * scale,
     ];
   });
 

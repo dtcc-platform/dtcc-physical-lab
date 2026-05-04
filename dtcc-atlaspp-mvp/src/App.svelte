@@ -47,7 +47,7 @@
 
   function handleLoadDataset(d: { filename: string; geojson: FeatureCollection; style: { color: string } }) {
     const next: Dataset = {
-      version: 1,
+      version: 2,
       ...d,
       uploadedAt: new Date().toISOString(),
     };
@@ -101,7 +101,7 @@
     else if (step === 4) {
       if (!pendingCorners || !pendingCorners.homography) return;
       const c: Calibration = {
-        version: 1,
+        version: 2,
         panX,
         panY,
         cornerDst: pendingCorners.cornerDst,
