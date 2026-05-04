@@ -120,6 +120,9 @@ Behavior:
 
 - Missing manifest, invalid manifest, parse failure, fetch failure, or `entries: []`: hide the sample selector.
 - Valid manifest: show a compact `Sample dataset` selector above the drop zone.
+- The selector has a disabled placeholder option, `Select a sample...`, when there is no active catalog sample. This is the selected state when `dataset` is `null`, when `dataset.catalogId` is absent because a drag/drop dataset is active, or when `dataset.catalogId` does not match any current manifest entry.
+- Each option displays the manifest entry `title`.
+- When a manifest entry is active and has `description`, show that description as small helper text below the selector. If no catalog sample is active, or the active entry has no description, show no helper text.
 - While a sample file is loading: disable the selector and show `Loading...`; no spinner.
 - Listed file fetch errors and GeoJSON validation errors use the existing inline `error` slot.
 - Selecting the currently active sample re-fetches and reloads idempotently.
@@ -209,7 +212,7 @@ Update `tests/storage.test.ts`:
 - Optional `projectionBbox` round-trips.
 - Optional `catalogId` round-trips.
 - Malformed optional `projectionBbox` is rejected by `loadDataset()`.
-- Malformed optional `catalogId` is rejected by `loadDataset()`.
+- Malformed optional `catalogId` is rejected by `loadDataset()`, including a non-string value such as a number.
 - `bboxEqual()` uses tuple-exact equality.
 - `datasetFitBbox()` returns `projectionBbox` when present.
 - `datasetFitBbox()` falls back to `featureCollectionBbox()` when absent.
