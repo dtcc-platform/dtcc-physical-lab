@@ -1,6 +1,6 @@
 # Catalog datasets
 
-This directory contains curated GeoJSON files that appear in the Atlas++ MVP sample selector.
+This directory contains curated GeoJSON files that appear in the DTCC Atlas++ MVP sample selector.
 
 Rules enforced by `tests/catalog.test.ts`:
 

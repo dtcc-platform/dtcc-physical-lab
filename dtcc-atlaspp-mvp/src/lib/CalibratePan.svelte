@@ -15,16 +15,16 @@
 
   const PADDING_PX = 40;
   // Pan step in screen pixels per arrow press. Held modifiers shift the
-  // granularity: Alt for sub-cm fine-tune at 4K, Shift for fast coarse moves.
-  // Alt takes priority if both are held (precision wins). On macOS the OS
-  // can intercept Alt+Arrow for Mission Control before the browser sees the
-  // event — fine-pan may silently no-op there until the OS shortcut is off.
+  // granularity: Alt or Cmd (⌥/⌘) for sub-cm fine-tune at 4K, Shift for fast
+  // coarse moves. Fine takes priority if combined with Shift. Cmd+Arrow on
+  // macOS is the browser back/forward shortcut; preventDefault in the handler
+  // suppresses that.
   const PAN_STEP_DEFAULT = 10;
   const PAN_STEP_FINE = 1;
   const PAN_STEP_COARSE = 50;
 
   function stepFromEvent(e: KeyboardEvent): number {
-    if (e.altKey) return PAN_STEP_FINE;
+    if (e.altKey || e.metaKey) return PAN_STEP_FINE;
     if (e.shiftKey) return PAN_STEP_COARSE;
     return PAN_STEP_DEFAULT;
   }

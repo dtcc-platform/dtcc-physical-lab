@@ -1,0 +1,119 @@
+{
+  "type": "FeatureCollection",
+  "name": "gothenburg-dummy-500m-v1",
+  "bbox": [319720, 6397660, 320220, 6398160],
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:EPSG::3006"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "dummy-500m-frame",
+        "kind": "frame",
+        "label": "500 m dummy bbox",
+        "source": "synthetic-dataset"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [319720, 6397660],
+          [320220, 6397660],
+          [320220, 6398160],
+          [319720, 6398160],
+          [319720, 6397660]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "dummy-500m-block-a",
+        "kind": "polygon",
+        "label": "Dummy block A",
+        "source": "synthetic-dataset"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [319780, 6397725],
+            [319945, 6397710],
+            [319980, 6397865],
+            [319810, 6397900],
+            [319780, 6397725]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "dummy-500m-block-b",
+        "kind": "polygon",
+        "label": "Dummy block B",
+        "source": "synthetic-dataset"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [320010, 6397920],
+            [320155, 6397905],
+            [320185, 6398070],
+            [320030, 6398100],
+            [320010, 6397920]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "dummy-500m-route",
+        "kind": "line",
+        "label": "Dummy route",
+        "source": "synthetic-dataset"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [319755, 6397695],
+          [319870, 6397795],
+          [319985, 6397875],
+          [320095, 6398005],
+          [320185, 6398130]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "dummy-500m-center",
+        "kind": "point",
+        "label": "Center marker",
+        "source": "synthetic-dataset"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [319970, 6397910]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "dummy-500m-north-east",
+        "kind": "point",
+        "label": "North-east marker",
+        "source": "synthetic-dataset"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [320165, 6398105]
+      }
+    }
+  ]
+}

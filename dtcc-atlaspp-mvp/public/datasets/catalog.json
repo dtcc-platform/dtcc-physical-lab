@@ -9,6 +9,13 @@
       "projectionBbox": [316385.555, 6397546.957, 322614.029, 6403932.781]
     },
     {
+      "id": "gothenburg-dummy-500m",
+      "title": "Gothenburg Dummy 500m",
+      "description": "Synthetic EPSG:3006 mixed-geometry sample bounded by [319720, 6397660, 320220, 6398160].",
+      "file": "gothenburg-dummy-500m-v1.geojson",
+      "projectionBbox": [319720, 6397660, 320220, 6398160]
+    },
+    {
       "id": "gothenburg-calibration-grid",
       "title": "Gothenburg Calibration Grid",
       "description": "Temporary grid sample with the same projection frame for checking catalog sample calibration reuse.",

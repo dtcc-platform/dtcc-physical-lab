@@ -190,10 +190,10 @@
 {#if visible}
   <section
     class="fixed bottom-4 right-4 w-80 bg-white/95 text-dtcc-dark rounded-lg shadow-xl p-4 pointer-events-auto z-50"
-    aria-label="Atlas++ controls"
+    aria-label="DTCC Atlas++ controls"
   >
     <header class="flex items-center justify-between mb-2">
-      <h2 class="text-sm font-semibold">Atlas++ MVP</h2>
+      <h2 class="text-sm font-semibold">DTCC Atlas++ MVP</h2>
       {#if autoHide}
         <button class="text-xs text-dtcc-muted" onclick={() => (visible = false)}>hide</button>
       {/if}

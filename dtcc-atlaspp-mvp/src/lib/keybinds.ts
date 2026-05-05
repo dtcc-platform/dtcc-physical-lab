@@ -18,6 +18,6 @@ export function onKey(key: string, handler: Handler): () => void {
     if (event.key !== key) return;
     handler(event);
   };
-  window.addEventListener('keydown', listener);
-  return () => window.removeEventListener('keydown', listener);
+  window.addEventListener('keydown', listener, true);
+  return () => window.removeEventListener('keydown', listener, true);
 }

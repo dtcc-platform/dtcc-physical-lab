@@ -5,8 +5,8 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-function dispatchKey(key: string, target?: EventTarget) {
-  const event = new KeyboardEvent('keydown', { key, bubbles: true });
+function dispatchKey(key: string, target?: EventTarget, init: KeyboardEventInit = {}) {
+  const event = new KeyboardEvent('keydown', { key, bubbles: true, ...init });
   (target ?? window).dispatchEvent(event);
 }
 
@@ -65,6 +65,28 @@ describe('onKey', () => {
     const off = onKey('c', handler);
     dispatchKey('c', div);
     expect(handler).not.toHaveBeenCalled();
+    off();
+  });
+
+  it('fires before a focused surface can stop arrow-key propagation', () => {
+    const div = document.createElement('div');
+    div.addEventListener('keydown', (event) => event.stopPropagation());
+    document.body.appendChild(div);
+    const handler = vi.fn();
+    const off = onKey('ArrowLeft', handler);
+    dispatchKey('ArrowLeft', div);
+    expect(handler).toHaveBeenCalledTimes(1);
+    off();
+  });
+
+  it('preserves modifier state for arrow-key handlers', () => {
+    const handler = vi.fn();
+    const off = onKey('ArrowRight', handler);
+    dispatchKey('ArrowRight', window, { altKey: true, shiftKey: true });
+    expect(handler).toHaveBeenCalledTimes(1);
+    const event = handler.mock.calls[0][0] as KeyboardEvent;
+    expect(event.altKey).toBe(true);
+    expect(event.shiftKey).toBe(true);
     off();
   });
 
