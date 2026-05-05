@@ -1,8 +1,7 @@
 <script lang="ts">
-  import { featureCollectionBbox } from './geojson';
   import { featuresToRenderables, type Renderable } from './geojsonRender';
   import { onKey } from './keybinds';
-  import type { Dataset } from './storage';
+  import { datasetFitBbox, type Dataset } from './storage';
 
   let { dataset, panX, panY, onPan } = $props<{
     dataset: Dataset;
@@ -75,7 +74,7 @@
   // cos-lat correction; the y-axis flip stays because northing grows
   // northward but screen Y grows downward.
   const projection = $derived.by(() => {
-    const bbox = featureCollectionBbox(dataset.geojson);
+    const bbox = datasetFitBbox(dataset);
     if (!bbox) return null;
     const [minX, minY, maxX, maxY] = bbox;
     const dataW = maxX - minX;

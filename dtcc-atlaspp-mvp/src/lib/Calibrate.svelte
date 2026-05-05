@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { featureCollectionBbox } from './geojson';
   import { featuresToRenderables, type Renderable } from './geojsonRender';
-  import type { Dataset } from './storage';
+  import { datasetFitBbox, type Dataset } from './storage';
 
   let { dataset } = $props<{ dataset: Dataset | null }>();
 
@@ -25,7 +24,7 @@
   // because northing grows northward but screen Y grows downward.
   const projection = $derived.by(() => {
     if (!dataset) return null;
-    const bbox = featureCollectionBbox(dataset.geojson);
+    const bbox = datasetFitBbox(dataset);
     if (!bbox) return null;
     const [minX, minY, maxX, maxY] = bbox;
     const dataW = maxX - minX;

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "gothenburg-dummy-mixed",
+      "title": "Gothenburg Dummy Mixed",
+      "description": "Temporary synthetic mixed geometry sample copied from public/fixtures until real dtcc-core exports are added.",
+      "file": "gothenburg-dummy-mixed-v1.geojson",
+      "projectionBbox": [316385.555, 6397546.957, 322614.029, 6403932.781]
+    },
+    {
+      "id": "gothenburg-calibration-grid",
+      "title": "Gothenburg Calibration Grid",
+      "description": "Temporary grid sample with the same projection frame for checking catalog sample calibration reuse.",
+      "file": "calibration-gothenburg-grid-v1.geojson",
+      "projectionBbox": [316385.555, 6397546.957, 322614.029, 6403932.781]
+    }
+  ]
+}

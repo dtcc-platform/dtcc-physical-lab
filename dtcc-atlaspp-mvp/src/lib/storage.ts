@@ -1,4 +1,6 @@
-import type { FeatureCollection } from './geojson';
+import { featureCollectionBbox, type FeatureCollection } from './geojson';
+
+export type Bbox = [number, number, number, number];
 
 export type Dataset = {
   version: 2;
@@ -6,6 +8,8 @@ export type Dataset = {
   geojson: FeatureCollection;
   style: { color: string };
   uploadedAt: string;
+  projectionBbox?: Bbox;
+  catalogId?: string;
 };
 
 export type Calibration = {
@@ -40,7 +44,10 @@ function isDataset(v: unknown): v is Dataset {
   if (!Array.isArray(g.features)) return false;
   const s = d.style as Record<string, unknown> | undefined;
   if (!s || typeof s.color !== 'string') return false;
-  return typeof d.uploadedAt === 'string';
+  if (typeof d.uploadedAt !== 'string') return false;
+  if (d.projectionBbox !== undefined && !isBbox(d.projectionBbox)) return false;
+  if (d.catalogId !== undefined && typeof d.catalogId !== 'string') return false;
+  return true;
 }
 
 function isCornerDst(v: unknown): v is Calibration['cornerDst'] {
@@ -48,6 +55,10 @@ function isCornerDst(v: unknown): v is Calibration['cornerDst'] {
   return v.every(
     (p) => Array.isArray(p) && p.length === 2 && typeof p[0] === 'number' && typeof p[1] === 'number'
   );
+}
+
+function isBbox(v: unknown): v is Bbox {
+  return Array.isArray(v) && v.length === 4 && v.every((n) => typeof n === 'number');
 }
 
 function isCalibration(v: unknown): v is Calibration {
@@ -92,6 +103,15 @@ export function saveDataset(d: Dataset): void {
 
 export function clearDataset(): void {
   localStorage.removeItem(KEY_DATASET);
+}
+
+export function datasetFitBbox(dataset: Dataset): Bbox | null {
+  return dataset.projectionBbox ?? featureCollectionBbox(dataset.geojson);
+}
+
+export function bboxEqual(a: Bbox | undefined, b: Bbox | undefined): boolean {
+  if (!a || !b) return false;
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
 }
 
 export function loadCalibration(): Calibration | null {

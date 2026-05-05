@@ -1,8 +1,7 @@
 <script lang="ts">
-  import { featureCollectionBbox } from './geojson';
   import { featuresToRenderables, type Renderable } from './geojsonRender';
   import { solveHomography, toMatrix3d, isDegenerate } from './homography';
-  import type { Dataset } from './storage';
+  import { datasetFitBbox, type Dataset } from './storage';
 
   let { dataset, panX, panY, onCornersChange, seedCorners } = $props<{
     dataset: Dataset;
@@ -175,7 +174,7 @@
   // Direct fit-into-square + pan offset, identical to step 3. The CSS
   // matrix3d transform is then applied on top to warp the rendered SVG.
   const projection = $derived.by(() => {
-    const bbox = featureCollectionBbox(dataset.geojson);
+    const bbox = datasetFitBbox(dataset);
     if (!bbox) return null;
     const [minX, minY, maxX, maxY] = bbox;
     const dataW = maxX - minX;

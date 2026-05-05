@@ -1,0 +1,224 @@
+{
+  "type": "FeatureCollection",
+  "name": "calibration-gothenburg-grid-v1",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:EPSG::3006"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "frame",
+        "kind": "line",
+        "label": "Calibration frame",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            316385.555,
+            6397813.539
+          ],
+          [
+            322344.719,
+            6397546.957
+          ],
+          [
+            322614.029,
+            6403666.442
+          ],
+          [
+            316663.908,
+            6403932.781
+          ],
+          [
+            316385.555,
+            6397813.539
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "diag-nw-se",
+        "kind": "line",
+        "label": "Diagonal NW-SE",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            316663.908,
+            6403932.781
+          ],
+          [
+            322344.719,
+            6397546.957
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "diag-sw-ne",
+        "kind": "line",
+        "label": "Diagonal SW-NE",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            316385.555,
+            6397813.539
+          ],
+          [
+            322614.029,
+            6403666.442
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "center-horizontal",
+        "kind": "line",
+        "label": "Center horizontal",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            316524.71,
+            6400873.155
+          ],
+          [
+            322479.353,
+            6400606.695
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "center-vertical",
+        "kind": "line",
+        "label": "Center vertical",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            319365.107,
+            6397679.148
+          ],
+          [
+            319638.939,
+            6403798.512
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "corner-nw",
+        "kind": "point",
+        "label": "NW corner marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          316663.908,
+          6403932.781
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "corner-ne",
+        "kind": "point",
+        "label": "NE corner marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          322614.029,
+          6403666.442
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "corner-se",
+        "kind": "point",
+        "label": "SE corner marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          322344.719,
+          6397546.957
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "corner-sw",
+        "kind": "point",
+        "label": "SW corner marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          316385.555,
+          6397813.539
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "center",
+        "kind": "point",
+        "label": "Center marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          319502.002,
+          6400738.825
+        ]
+      }
+    }
+  ]
+}

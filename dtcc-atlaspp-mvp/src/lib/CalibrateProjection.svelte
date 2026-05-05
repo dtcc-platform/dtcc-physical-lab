@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { featureCollectionBbox } from './geojson';
   import { featuresToRenderables, type Renderable } from './geojsonRender';
   import { solveHomography, toMatrix3d, isDegenerate } from './homography';
   import { scaleFactor } from './scaleFactor';
-  import type { Dataset, Calibration } from './storage';
+  import { datasetFitBbox, type Dataset, type Calibration } from './storage';
 
   let { dataset, calibration } = $props<{
     dataset: Dataset;
@@ -61,7 +60,7 @@
   // so no cos-lat correction. Pan is in saved viewport pixel space, so it
   // gets scaled the same way as cornerDst.
   const projection = $derived.by(() => {
-    const bbox = featureCollectionBbox(dataset.geojson);
+    const bbox = datasetFitBbox(dataset);
     if (!bbox) return null;
     const [minX, minY, maxX, maxY] = bbox;
     const dataW = maxX - minX;

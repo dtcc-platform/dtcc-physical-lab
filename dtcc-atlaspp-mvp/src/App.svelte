@@ -13,6 +13,7 @@
     loadCalibration,
     saveCalibration,
     clearCalibration,
+    bboxEqual,
     type Dataset,
     type Calibration,
   } from './lib/storage';
@@ -45,6 +46,14 @@
     calibration = c;
   }
 
+  function resetWizardState() {
+    setCalibration(null);
+    step = 1;
+    panX = 0;
+    panY = 0;
+    pendingCorners = null;
+  }
+
   function handleLoadDataset(d: { filename: string; geojson: FeatureCollection; style: { color: string } }) {
     const next: Dataset = {
       version: 2,
@@ -54,12 +63,30 @@
     saveDataset(next);
     // A new file invalidates pan and any prior calibration — they were keyed
     // to the old dataset's bbox/projection and the old viewport.
-    setCalibration(null);
     dataset = next;
-    step = 1;
-    panX = 0;
-    panY = 0;
-    pendingCorners = null;
+    resetWizardState();
+  }
+
+  function handleLoadSample(d: {
+    filename: string;
+    geojson: FeatureCollection;
+    style: { color: string };
+    projectionBbox: [number, number, number, number];
+    catalogId: string;
+  }) {
+    const next: Dataset = {
+      version: 2,
+      ...d,
+      uploadedAt: new Date().toISOString(),
+    };
+    const compatible = calibration !== null && bboxEqual(dataset?.projectionBbox, next.projectionBbox);
+    saveDataset(next);
+    dataset = next;
+    if (compatible) {
+      step = 5;
+    } else {
+      resetWizardState();
+    }
   }
 
   function handleClearDataset() {
@@ -184,6 +211,7 @@
   autoHide={false}
   backHidden={step === 1 || dataset === null}
   onLoadDataset={handleLoadDataset}
+  onLoadSample={handleLoadSample}
   onClearDataset={handleClearDataset}
   onSetColor={handleSetColor}
   onNext={handleNext}

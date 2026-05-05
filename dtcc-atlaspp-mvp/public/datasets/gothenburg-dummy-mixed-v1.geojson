@@ -1,0 +1,135 @@
+{
+  "type": "FeatureCollection",
+  "name": "gothenburg-dummy-mixed-v1",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:EPSG::3006"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "district-alpha",
+        "kind": "polygon",
+        "label": "Dummy district",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              318129.304,
+              6399406.908
+            ],
+            [
+              319951.06,
+              6398767.804
+            ],
+            [
+              320933.593,
+              6400730.759
+            ],
+            [
+              319202.097,
+              6402034.33
+            ],
+            [
+              318129.304,
+              6399406.908
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "route-beta",
+        "kind": "line",
+        "label": "Dummy route",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            317672.883,
+            6399873.451
+          ],
+          [
+            318591.297,
+            6400389.481
+          ],
+          [
+            319474.62,
+            6400126.889
+          ],
+          [
+            320467.129,
+            6400974.459
+          ],
+          [
+            321330.308,
+            6401605.014
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "stop-1",
+        "kind": "point",
+        "label": "North marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          319306.194,
+          6401695.209
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "stop-2",
+        "kind": "point",
+        "label": "Center marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          319608.657,
+          6400455.344
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "stop-3",
+        "kind": "point",
+        "label": "Southwest marker",
+        "dummy_date": "2026-04-25",
+        "source": "synthetic-fixture"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          318377.586,
+          6399618.697
+        ]
+      }
+    }
+  ]
+}

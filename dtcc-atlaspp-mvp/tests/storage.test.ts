@@ -5,6 +5,8 @@ import {
   loadCalibration,
   saveCalibration,
   clearCalibration,
+  datasetFitBbox,
+  bboxEqual,
   type Dataset,
   type Calibration,
 } from '../src/lib/storage';
@@ -25,6 +27,34 @@ describe('dataset', () => {
   it('round-trips a saved dataset', () => {
     saveDataset(d);
     expect(loadDataset()).toEqual(d);
+  });
+
+  it('round-trips optional catalog metadata', () => {
+    const withCatalog: Dataset = {
+      ...d,
+      projectionBbox: [316385.555, 6397546.957, 322614.029, 6403932.781],
+      catalogId: 'gothenburg-dummy-mixed',
+    };
+    saveDataset(withCatalog);
+    expect(loadDataset()).toEqual(withCatalog);
+  });
+
+  it('returns null when optional projectionBbox is malformed', () => {
+    const partial = { ...d, projectionBbox: [1, 2, 3] } as any;
+    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
+    expect(loadDataset()).toBeNull();
+  });
+
+  it('returns null when optional projectionBbox contains non-numbers', () => {
+    const partial = { ...d, projectionBbox: [1, 2, '3', 4] } as any;
+    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
+    expect(loadDataset()).toBeNull();
+  });
+
+  it('returns null when optional catalogId is not a string', () => {
+    const partial = { ...d, catalogId: 42 } as any;
+    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
+    expect(loadDataset()).toBeNull();
   });
 
   it('returns null when not set', () => {
@@ -59,6 +89,52 @@ describe('dataset', () => {
     const partial = { ...d, geojson: { type: 'FeatureCollection', features: null } } as any;
     localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
     expect(loadDataset()).toBeNull();
+  });
+});
+
+describe('bbox helpers', () => {
+  const fc = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [319950, 6398000] },
+        properties: {},
+      },
+      {
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [320050, 6398050] },
+        properties: {},
+      },
+    ],
+  } as any;
+
+  const base: Dataset = {
+    version: 2,
+    filename: 'bbox.geojson',
+    geojson: fc,
+    style: { color: '#38bdf8' },
+    uploadedAt: '2026-05-04T10:00:00.000Z',
+  };
+
+  it('datasetFitBbox returns projectionBbox when present', () => {
+    const dataset: Dataset = {
+      ...base,
+      projectionBbox: [316385.555, 6397546.957, 322614.029, 6403932.781],
+    };
+    expect(datasetFitBbox(dataset)).toEqual([316385.555, 6397546.957, 322614.029, 6403932.781]);
+  });
+
+  it('datasetFitBbox falls back to featureCollectionBbox when projectionBbox is absent', () => {
+    expect(datasetFitBbox(base)).toEqual([319950, 6398000, 320050, 6398050]);
+  });
+
+  it('bboxEqual uses tuple-exact equality and requires both sides', () => {
+    const a = [1, 2, 3, 4] as [number, number, number, number];
+    expect(bboxEqual(a, [1, 2, 3, 4])).toBe(true);
+    expect(bboxEqual(a, [1, 2, 3, 4.000001])).toBe(false);
+    expect(bboxEqual(undefined, a)).toBe(false);
+    expect(bboxEqual(a, undefined)).toBe(false);
   });
 });
 

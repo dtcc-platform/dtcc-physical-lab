@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { parseCatalog, type CatalogEntry } from './catalog';
   import { validateGeoJSON, defaultStyle, type FeatureCollection } from './geojson';
+  import type { Bbox } from './storage';
 
   let {
     dataset,
@@ -7,16 +9,24 @@
     autoHide = true,
     backHidden = false,
     onLoadDataset,
+    onLoadSample = () => {},
     onClearDataset,
     onSetColor,
     onNext,
     onBack,
   } = $props<{
-    dataset: { filename: string; geojson: FeatureCollection; style: { color: string } } | null;
+    dataset: { filename: string; geojson: FeatureCollection; style: { color: string }; catalogId?: string } | null;
     nextDisabled?: boolean;
     autoHide?: boolean;
     backHidden?: boolean;
     onLoadDataset: (d: { filename: string; geojson: FeatureCollection; style: { color: string } }) => void;
+    onLoadSample?: (d: {
+      filename: string;
+      geojson: FeatureCollection;
+      style: { color: string };
+      projectionBbox: Bbox;
+      catalogId: string;
+    }) => void;
     onClearDataset: () => void;
     onSetColor: (color: string) => void;
     onNext: () => void;
@@ -28,6 +38,8 @@
   let error = $state<string | null>(null);
   let dragging = $state(false);
   let fileInput = $state<HTMLInputElement | null>(null);
+  let catalogEntries = $state<CatalogEntry[]>([]);
+  let sampleLoading = $state(false);
 
   function clearHideTimer() {
     if (hideTimer != null) {
@@ -55,6 +67,11 @@
     hideTimer = window.setTimeout(() => (visible = false), 5000);
   }
 
+  const activeCatalogEntry = $derived(
+    catalogEntries.find((entry) => entry.id === dataset?.catalogId) ?? null
+  );
+  const selectedCatalogId = $derived(activeCatalogEntry?.id ?? '');
+
   $effect(() => {
     if (!autoHide) {
       visible = true;
@@ -68,6 +85,60 @@
       clearHideTimer();
     };
   });
+
+  $effect(() => {
+    let cancelled = false;
+
+    async function loadCatalog() {
+      try {
+        const response = await fetch('/datasets/catalog.json', { cache: 'no-cache' });
+        if (!response.ok) return;
+        const parsed = parseCatalog(await response.json());
+        if (!cancelled && parsed.ok) catalogEntries = parsed.value.entries;
+      } catch {
+        // Missing or invalid catalogs simply hide the selector; drag/drop remains available.
+      }
+    }
+
+    loadCatalog();
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  async function handleSampleChange(e: Event) {
+    const id = (e.currentTarget as HTMLSelectElement).value;
+    const entry = catalogEntries.find((candidate) => candidate.id === id);
+    if (!entry) return;
+
+    error = null;
+    sampleLoading = true;
+    try {
+      const response = await fetch(`/datasets/${entry.file}`, { cache: 'no-cache' });
+      if (!response.ok) {
+        error = `sample fetch failed (${response.status} ${response.statusText})`;
+        return;
+      }
+      const text = await response.text();
+      const result = validateGeoJSON(text);
+      if (!result.ok) {
+        error = result.error;
+        return;
+      }
+      onLoadSample({
+        filename: entry.file,
+        geojson: result.value,
+        style: defaultStyle(),
+        projectionBbox: entry.projectionBbox,
+        catalogId: entry.id,
+      });
+    } catch (err) {
+      error = `sample fetch failed: ${(err as Error).message}`;
+    } finally {
+      sampleLoading = false;
+      resetTimer();
+    }
+  }
 
   async function handleFile(file: File) {
     error = null;
@@ -127,6 +198,29 @@
         <button class="text-xs text-dtcc-muted" onclick={() => (visible = false)}>hide</button>
       {/if}
     </header>
+
+    {#if catalogEntries.length > 0}
+      <div class="mb-3">
+        <label class="block text-xs font-medium mb-1" for="sample-dataset">Sample dataset</label>
+        <select
+          id="sample-dataset"
+          class="w-full text-xs rounded border border-dtcc-border bg-white px-2 py-1 disabled:opacity-60"
+          value={selectedCatalogId}
+          disabled={sampleLoading}
+          onchange={handleSampleChange}
+        >
+          <option value="" disabled>{sampleLoading ? 'Loading...' : 'Select a sample...'}</option>
+          {#each catalogEntries as entry}
+            <option value={entry.id}>{entry.title}</option>
+          {/each}
+        </select>
+        {#if sampleLoading}
+          <p class="text-xs text-dtcc-muted mt-1">Loading...</p>
+        {:else if activeCatalogEntry?.description}
+          <p class="text-xs text-dtcc-muted mt-1">{activeCatalogEntry.description}</p>
+        {/if}
+      </div>
+    {/if}
 
     <div
       role="region"
