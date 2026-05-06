@@ -129,7 +129,7 @@
         filename: entry.file,
         geojson: result.value,
         style: defaultStyle(),
-        projectionBbox: entry.projectionBbox,
+        projectionBbox: entry.bounds,
         catalogId: entry.id,
       });
     } catch (err) {

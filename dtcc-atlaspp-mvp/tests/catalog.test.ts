@@ -9,7 +9,7 @@ const entry = {
   title: 'Gothenburg Dummy Mixed',
   description: 'Synthetic mixed geometry sample.',
   file: 'gothenburg-dummy-mixed-v1.geojson',
-  projectionBbox: [316385.555, 6397546.957, 322614.029, 6403932.781],
+  bounds: [316385.555, 6397546.957, 322614.029, 6403932.781],
 };
 
 describe('parseCatalog', () => {
@@ -55,10 +55,10 @@ describe('parseCatalog', () => {
     if (!result.ok) expect(result.error).toMatch(/relative/i);
   });
 
-  it('rejects malformed projectionBbox values', () => {
-    const result = parseCatalog({ version: 1, entries: [{ ...entry, projectionBbox: [1, 2, 3] }] });
+  it('rejects malformed bounds values', () => {
+    const result = parseCatalog({ version: 1, entries: [{ ...entry, bounds: [1, 2, 3] }] });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/projectionBbox/i);
+    if (!result.ok) expect(result.error).toMatch(/bounds/i);
   });
 
   it('rejects non-string descriptions when present', () => {

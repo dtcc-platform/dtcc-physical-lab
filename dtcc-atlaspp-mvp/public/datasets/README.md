@@ -5,7 +5,7 @@ This directory contains curated GeoJSON files that appear in the DTCC Atlas++ MV
 Rules enforced by `tests/catalog.test.ts`:
 
 - `catalog.json` must use `version: 1`.
-- Each entry must have a unique `id`, `title`, `file`, and EPSG:3006 `projectionBbox`.
+- Each entry must have a unique `id`, `title`, `file`, and EPSG:3006 `bounds`.
 - `file` paths are relative to `/datasets/`.
 - Listed GeoJSON files must validate through the app's EPSG:3006 `validateGeoJSON()` path, including a declared `crs` field.
 

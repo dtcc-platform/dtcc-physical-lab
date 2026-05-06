@@ -7,7 +7,7 @@ export type CatalogEntry = {
   title: string;
   description?: string;
   file: string;
-  projectionBbox: Bbox;
+  bounds: Bbox;
 };
 
 export type Catalog = {
@@ -58,8 +58,8 @@ export function parseCatalog(value: unknown): CatalogResult<Catalog> {
     if (typeof raw.file !== 'string' || !isRelativeDatasetFile(raw.file)) {
       return { ok: false, error: `entry ${i} file must be relative to /datasets/` };
     }
-    if (!isBbox(raw.projectionBbox)) {
-      return { ok: false, error: `entry ${i} projectionBbox must be four numbers` };
+    if (!isBbox(raw.bounds)) {
+      return { ok: false, error: `entry ${i} bounds must be four numbers` };
     }
     if (raw.description !== undefined && typeof raw.description !== 'string') {
       return { ok: false, error: `entry ${i} description must be a string when present` };
@@ -70,7 +70,7 @@ export function parseCatalog(value: unknown): CatalogResult<Catalog> {
       title: raw.title,
       ...(raw.description !== undefined ? { description: raw.description } : {}),
       file: raw.file,
-      projectionBbox: raw.projectionBbox,
+      bounds: raw.bounds,
     });
   }
 
