@@ -15,7 +15,9 @@
     clearCalibration,
     bboxEqual,
     type Dataset,
+    type Bbox,
     type Calibration,
+    type DatasetContent,
   } from './lib/storage';
   import type { FeatureCollection } from './lib/geojson';
 
@@ -54,11 +56,13 @@
     pendingCorners = null;
   }
 
-  function handleLoadDataset(d: { filename: string; geojson: FeatureCollection; style: { color: string } }) {
+  function handleLoadDataset(d: { filename: string; geojson: FeatureCollection; style: { color: string }; bounds: Bbox }) {
     const next: Dataset = {
-      version: 2,
-      ...d,
+      version: 3,
+      filename: d.filename,
       uploadedAt: new Date().toISOString(),
+      bounds: d.bounds,
+      content: { kind: 'geojson', geojson: d.geojson, style: d.style },
     };
     saveDataset(next);
     // A new file invalidates pan and any prior calibration — they were keyed
@@ -69,17 +73,18 @@
 
   function handleLoadSample(d: {
     filename: string;
-    geojson: FeatureCollection;
-    style: { color: string };
-    projectionBbox: [number, number, number, number];
+    bounds: Bbox;
     catalogId: string;
+    title: string;
+    description?: string;
+    content: DatasetContent;
   }) {
     const next: Dataset = {
-      version: 2,
+      version: 3,
       ...d,
       uploadedAt: new Date().toISOString(),
     };
-    const compatible = calibration !== null && bboxEqual(dataset?.projectionBbox, next.projectionBbox);
+    const compatible = calibration !== null && bboxEqual(dataset?.bounds, next.bounds);
     saveDataset(next);
     dataset = next;
     if (compatible) {
@@ -100,8 +105,11 @@
   }
 
   function handleSetColor(color: string) {
-    if (!dataset) return;
-    const next: Dataset = { ...dataset, style: { color } };
+    if (!dataset || dataset.content.kind !== 'geojson') return;
+    const next: Dataset = {
+      ...dataset,
+      content: { ...dataset.content, style: { color } },
+    };
     saveDataset(next);
     dataset = next;
   }

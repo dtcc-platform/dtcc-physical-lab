@@ -2,14 +2,20 @@ import { featureCollectionBbox, type FeatureCollection } from './geojson';
 
 export type Bbox = [number, number, number, number];
 
+export type DatasetContent =
+  | { kind: 'geojson'; geojson: FeatureCollection; style: { color: string } }
+  | { kind: 'image'; src: string; mediaType: 'image/png' }
+  | { kind: 'video'; src: string; mediaType: 'video/mp4'; loop: boolean; muted: boolean; autoplay: boolean };
+
 export type Dataset = {
-  version: 2;
+  version: 3;
   filename: string;
-  geojson: FeatureCollection;
-  style: { color: string };
   uploadedAt: string;
-  projectionBbox?: Bbox;
+  bounds: Bbox;
   catalogId?: string;
+  title?: string;
+  description?: string;
+  content: DatasetContent;
 };
 
 export type Calibration = {
@@ -30,24 +36,83 @@ const KEY_CALIBRATION = 'dtcc-atlaspp-mvp.calibration';
 // blob (valid JSON, right version, missing/wrong-typed fields) is treated as
 // absent rather than hydrated and crashed downstream.
 
-function isDataset(v: unknown): v is Dataset {
-  if (!v || typeof v !== 'object') return false;
-  const d = v as Record<string, unknown>;
-  if (d.version !== 2) return false;
-  if (typeof d.filename !== 'string') return false;
-  // Validate the FeatureCollection shape we actually iterate over downstream.
-  // A partially-written save where geojson is `{}` or `{ features: null }`
-  // would otherwise pass and then crash on the first feature iteration.
-  if (!d.geojson || typeof d.geojson !== 'object') return false;
-  const g = d.geojson as Record<string, unknown>;
-  if (g.type !== 'FeatureCollection') return false;
-  if (!Array.isArray(g.features)) return false;
-  const s = d.style as Record<string, unknown> | undefined;
-  if (!s || typeof s.color !== 'string') return false;
-  if (typeof d.uploadedAt !== 'string') return false;
-  if (d.projectionBbox !== undefined && !isBbox(d.projectionBbox)) return false;
-  if (d.catalogId !== undefined && typeof d.catalogId !== 'string') return false;
-  return true;
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function isFeatureCollection(v: unknown): v is FeatureCollection {
+  if (!isRecord(v)) return false;
+  if (v.type !== 'FeatureCollection') return false;
+  return Array.isArray(v.features);
+}
+
+function isStyle(v: unknown): v is { color: string } {
+  return isRecord(v) && typeof v.color === 'string';
+}
+
+function isBbox(v: unknown): v is Bbox {
+  return Array.isArray(v) && v.length === 4 && v.every((n) => typeof n === 'number' && Number.isFinite(n));
+}
+
+function isDatasetContent(v: unknown): v is DatasetContent {
+  if (!isRecord(v)) return false;
+  if (v.kind === 'geojson') return isFeatureCollection(v.geojson) && isStyle(v.style);
+  if (v.kind === 'image') return typeof v.src === 'string' && v.mediaType === 'image/png';
+  if (v.kind === 'video') {
+    return (
+      typeof v.src === 'string' &&
+      v.mediaType === 'video/mp4' &&
+      typeof v.loop === 'boolean' &&
+      typeof v.muted === 'boolean' &&
+      typeof v.autoplay === 'boolean'
+    );
+  }
+  return false;
+}
+
+function parseDataset(v: unknown): Dataset | null {
+  if (!isRecord(v)) return null;
+
+  if (v.version === 3) {
+    if (typeof v.filename !== 'string') return null;
+    if (typeof v.uploadedAt !== 'string') return null;
+    if (!isBbox(v.bounds)) return null;
+    if (v.catalogId !== undefined && typeof v.catalogId !== 'string') return null;
+    if (v.title !== undefined && typeof v.title !== 'string') return null;
+    if (v.description !== undefined && typeof v.description !== 'string') return null;
+    if (!isDatasetContent(v.content)) return null;
+
+    return {
+      version: 3,
+      filename: v.filename,
+      uploadedAt: v.uploadedAt,
+      bounds: v.bounds,
+      ...(v.catalogId !== undefined ? { catalogId: v.catalogId } : {}),
+      ...(v.title !== undefined ? { title: v.title } : {}),
+      ...(v.description !== undefined ? { description: v.description } : {}),
+      content: v.content,
+    };
+  }
+
+  if (v.version === 2) {
+    if (typeof v.filename !== 'string') return null;
+    if (typeof v.uploadedAt !== 'string') return null;
+    if (!isFeatureCollection(v.geojson)) return null;
+    if (!isStyle(v.style)) return null;
+    if (v.catalogId !== undefined && typeof v.catalogId !== 'string') return null;
+    const bounds = isBbox(v.projectionBbox) ? v.projectionBbox : featureCollectionBbox(v.geojson);
+    if (!bounds) return null;
+    return {
+      version: 3,
+      filename: v.filename,
+      uploadedAt: v.uploadedAt,
+      bounds,
+      ...(v.catalogId !== undefined ? { catalogId: v.catalogId } : {}),
+      content: { kind: 'geojson', geojson: v.geojson, style: v.style },
+    };
+  }
+
+  return null;
 }
 
 function isCornerDst(v: unknown): v is Calibration['cornerDst'] {
@@ -55,10 +120,6 @@ function isCornerDst(v: unknown): v is Calibration['cornerDst'] {
   return v.every(
     (p) => Array.isArray(p) && p.length === 2 && typeof p[0] === 'number' && typeof p[1] === 'number'
   );
-}
-
-function isBbox(v: unknown): v is Bbox {
-  return Array.isArray(v) && v.length === 4 && v.every((n) => typeof n === 'number');
 }
 
 function isCalibration(v: unknown): v is Calibration {
@@ -94,7 +155,13 @@ function save<T>(key: string, value: T): void {
 }
 
 export function loadDataset(): Dataset | null {
-  return loadVersioned(KEY_DATASET, isDataset);
+  const raw = localStorage.getItem(KEY_DATASET);
+  if (raw == null) return null;
+  try {
+    return parseDataset(JSON.parse(raw));
+  } catch {
+    return null;
+  }
 }
 
 export function saveDataset(d: Dataset): void {
@@ -105,8 +172,8 @@ export function clearDataset(): void {
   localStorage.removeItem(KEY_DATASET);
 }
 
-export function datasetFitBbox(dataset: Dataset): Bbox | null {
-  return dataset.projectionBbox ?? featureCollectionBbox(dataset.geojson);
+export function datasetFitBbox(dataset: Dataset): Bbox {
+  return dataset.bounds;
 }
 
 export function bboxEqual(a: Bbox | undefined, b: Bbox | undefined): boolean {

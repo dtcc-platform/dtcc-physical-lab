@@ -43,11 +43,36 @@ function formatName(manifest) {
   return typeof manifest.format === 'string' && manifest.format.length > 0 ? manifest.format.toLowerCase() : 'unknown';
 }
 
+function kindForManifest(manifest) {
+  const format = formatName(manifest);
+  if (format === 'geojson') return { kind: 'geojson', format, mediaType: manifest.media_type };
+  if (format === 'png') {
+    if (manifest.data_kind !== 'raster') throw new Error('png manifests must have data_kind raster');
+    if (manifest.media_type !== 'image/png') throw new Error('png manifests must have media_type image/png');
+    return { kind: 'image', format, mediaType: 'image/png' };
+  }
+  if (format === 'mp4') {
+    if (manifest.data_kind !== 'video') throw new Error('mp4 manifests must have data_kind video');
+    if (manifest.media_type !== 'video/mp4') throw new Error('mp4 manifests must have media_type video/mp4');
+    return { kind: 'video', format, mediaType: 'video/mp4' };
+  }
+  return null;
+}
+
+function supportedVisualization(value) {
+  if (!isRecord(value)) return undefined;
+  const out = {};
+  for (const key of ['profile', 'width', 'height', 'fps', 'duration']) {
+    if (value[key] !== undefined) out[key] = value[key];
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 async function findManifestPaths(dir) {
   const items = await readdir(dir, { withFileTypes: true });
   const paths = [];
 
-  for (const item of items.sort((a, b) => a.name.localeCompare(b.name))) {
+  for (const item of items.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
     const itemPath = join(dir, item.name);
     if (item.isDirectory()) {
       paths.push(...(await findManifestPaths(itemPath)));
@@ -89,12 +114,12 @@ function parseManifest(manifestPath, manifest, datasetsDir) {
     throw new Error(`${manifestPath} file must be relative to the manifest directory`);
   }
 
-  const format = formatName(manifest);
-  if (format !== 'geojson') {
+  const manifestKind = kindForManifest(manifest);
+  if (manifestKind === null) {
     return {
       skipped: {
         manifest: manifestPath,
-        reason: `format ${format} is not supported by the GeoJSON catalog`,
+        reason: `format ${formatName(manifest)} is not supported by the Atlas catalog`,
       },
     };
   }
@@ -114,17 +139,26 @@ function parseManifest(manifestPath, manifest, datasetsDir) {
   const targetFile = resolve(datasetsDir, fileName);
   if (!existsSync(sourceFile)) throw new Error(`${manifestPath} references missing file ${manifest.file}`);
 
+  const entry = {
+    id,
+    title:
+      typeof manifest.title === 'string' && manifest.title.trim().length > 0
+        ? manifest.title.trim()
+        : titleFromId(id),
+    ...(manifest.description !== undefined ? { description: manifest.description } : {}),
+    file: relative(datasetsDir, targetFile),
+    bounds: manifest.bounds,
+    kind: manifestKind.kind,
+    format: manifestKind.format,
+    ...(manifestKind.mediaType !== undefined ? { mediaType: manifestKind.mediaType } : {}),
+  };
+  const visualization = supportedVisualization(manifest.visualization);
+  if ((manifestKind.kind === 'image' || manifestKind.kind === 'video') && visualization !== undefined) {
+    entry.visualization = visualization;
+  }
+
   return {
-    entry: {
-      id,
-      title:
-        typeof manifest.title === 'string' && manifest.title.trim().length > 0
-          ? manifest.title.trim()
-          : titleFromId(id),
-      ...(manifest.description !== undefined ? { description: manifest.description } : {}),
-      file: relative(datasetsDir, targetFile),
-      bounds: manifest.bounds,
-    },
+    entry,
     sourceFile,
     targetFile,
     manifestPath,
@@ -199,8 +233,8 @@ function usage() {
   return [
     'Usage: npm run catalog:ingest -- <manifest-dir> [--datasets-dir public/datasets] [--catalog public/datasets/catalog.json]',
     '',
-    'Scans recursively for dtcc-core *.manifest.json files, copies GeoJSON artifacts into public/datasets,',
-    'and upserts compatible entries into catalog.json. PNG/MP4 manifests are skipped for now.',
+    'Scans recursively for dtcc-core *.manifest.json files, copies GeoJSON/PNG/MP4 artifacts into public/datasets,',
+    'and upserts compatible entries into catalog.json. Unsupported formats are skipped with a warning.',
   ].join('\n');
 }
 

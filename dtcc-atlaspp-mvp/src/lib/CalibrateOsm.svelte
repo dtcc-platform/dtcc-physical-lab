@@ -1,9 +1,9 @@
 <script lang="ts">
   import maplibregl, { type Map as MLMap } from 'maplibre-gl';
   import { untrack } from 'svelte';
-  import { featureCollectionBbox, type FeatureCollection } from './geojson';
+  import type { FeatureCollection } from './geojson';
   import { swerefToWgs84, reprojectFcToWgs84 } from './sweref99tm';
-  import type { Dataset } from './storage';
+  import type { Bbox, Dataset } from './storage';
 
   let { dataset } = $props<{ dataset: Dataset }>();
 
@@ -31,10 +31,7 @@
   }
 
   function applyDataLayers(m: MLMap, fc: FeatureCollection, color: string) {
-    for (const id of ['data-fill', 'data-line', 'data-point']) {
-      if (m.getLayer(id)) m.removeLayer(id);
-    }
-    if (m.getSource('data')) m.removeSource('data');
+    clearDataLayers(m);
     m.addSource('data', { type: 'geojson', data: fc as any });
     m.addLayer({
       id: 'data-fill', type: 'fill', source: 'data',
@@ -53,9 +50,14 @@
     });
   }
 
-  function fitToFc(m: MLMap, fc: FeatureCollection) {
-    const bbox = featureCollectionBbox(fc);
-    if (!bbox) return;
+  function clearDataLayers(m: MLMap) {
+    for (const id of ['data-fill', 'data-line', 'data-point']) {
+      if (m.getLayer(id)) m.removeLayer(id);
+    }
+    if (m.getSource('data')) m.removeSource('data');
+  }
+
+  function fitToBbox(m: MLMap, bbox: Bbox) {
     const [minLonW, minLatW] = swerefToWgs84(bbox[0], bbox[1]);
     const [maxLonW, maxLatW] = swerefToWgs84(bbox[2], bbox[3]);
     m.fitBounds([[minLonW, minLatW], [maxLonW, maxLatW]], { padding: 60, duration: 0 });
@@ -73,9 +75,13 @@
     });
     map.once('load', () => {
       if (!map) return;
-      const fcWgs = reprojectFcToWgs84(initial.geojson);
-      fitToFc(map, initial.geojson);
-      applyDataLayers(map, fcWgs, initial.style.color);
+      fitToBbox(map, initial.bounds);
+      if (initial.content.kind === 'geojson') {
+        const fcWgs = reprojectFcToWgs84(initial.content.geojson);
+        applyDataLayers(map, fcWgs, initial.content.style.color);
+      } else {
+        clearDataLayers(map);
+      }
       initialized = true;
     });
     return () => {
@@ -89,9 +95,13 @@
   $effect(() => {
     const d = dataset;
     if (!initialized || !map) return;
-    const fcWgs = reprojectFcToWgs84(d.geojson);
-    fitToFc(map, d.geojson);
-    applyDataLayers(map, fcWgs, d.style.color);
+    fitToBbox(map, d.bounds);
+    if (d.content.kind === 'geojson') {
+      const fcWgs = reprojectFcToWgs84(d.content.geojson);
+      applyDataLayers(map, fcWgs, d.content.style.color);
+    } else {
+      clearDataLayers(map);
+    }
   });
 </script>
 

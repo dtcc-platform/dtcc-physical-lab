@@ -16,44 +16,101 @@ beforeEach(() => {
 });
 
 describe('dataset', () => {
+  const geojson = { type: 'FeatureCollection', features: [] } as any;
   const d: Dataset = {
-    version: 2,
+    version: 3,
     filename: 'test.geojson',
-    geojson: { type: 'FeatureCollection', features: [] } as any,
-    style: { color: '#38bdf8' },
+    bounds: [319720, 6397660, 320220, 6398160],
+    content: { kind: 'geojson', geojson, style: { color: '#38bdf8' } },
     uploadedAt: '2026-04-22T10:01:00.000Z',
   };
 
-  it('round-trips a saved dataset', () => {
+  it('round-trips a saved GeoJSON dataset', () => {
     saveDataset(d);
     expect(loadDataset()).toEqual(d);
   });
 
-  it('round-trips optional catalog metadata', () => {
-    const withCatalog: Dataset = {
-      ...d,
-      projectionBbox: [316385.555, 6397546.957, 322614.029, 6403932.781],
-      catalogId: 'gothenburg-dummy-mixed',
+  it('round-trips a saved image dataset', () => {
+    const image: Dataset = {
+      version: 3,
+      filename: 'smoke.png',
+      bounds: [319720, 6397660, 320220, 6398160],
+      uploadedAt: '2026-05-07T10:00:00.000Z',
+      catalogId: 'smoke-image',
+      title: 'Smoke Image',
+      content: { kind: 'image', src: '/datasets/smoke.png', mediaType: 'image/png' },
     };
-    saveDataset(withCatalog);
-    expect(loadDataset()).toEqual(withCatalog);
+    saveDataset(image);
+    expect(loadDataset()).toEqual(image);
   });
 
-  it('returns null when optional projectionBbox is malformed', () => {
-    const partial = { ...d, projectionBbox: [1, 2, 3] } as any;
+  it('round-trips a saved video dataset', () => {
+    const video: Dataset = {
+      version: 3,
+      filename: 'smoke.mp4',
+      bounds: [319720, 6397660, 320220, 6398160],
+      uploadedAt: '2026-05-07T10:00:00.000Z',
+      catalogId: 'smoke-video',
+      description: 'Smoke animation',
+      content: {
+        kind: 'video',
+        src: '/datasets/smoke.mp4',
+        mediaType: 'video/mp4',
+        muted: true,
+        autoplay: true,
+        loop: true,
+      },
+    };
+    saveDataset(video);
+    expect(loadDataset()).toEqual(video);
+  });
+
+  it('returns null when v3 bounds are malformed', () => {
+    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify({ ...d, bounds: [1, 2, 3] }));
+    expect(loadDataset()).toBeNull();
+  });
+
+  it('returns null when v3 bounds contain non-finite numbers', () => {
+    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify({ ...d, bounds: [1, 2, 3, Infinity] }));
+    expect(loadDataset()).toBeNull();
+  });
+
+  it('returns null when v3 content is missing', () => {
+    const partial = { ...d } as Record<string, unknown>;
+    delete partial.content;
     localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
     expect(loadDataset()).toBeNull();
   });
 
-  it('returns null when optional projectionBbox contains non-numbers', () => {
-    const partial = { ...d, projectionBbox: [1, 2, '3', 4] } as any;
+  it('returns null when a GeoJSON content style color is missing', () => {
+    const partial = { ...d, content: { kind: 'geojson', geojson, style: {} } } as any;
+    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
+    expect(loadDataset()).toBeNull();
+  });
+
+  it('returns null when image content mediaType is missing', () => {
+    const partial = { ...d, content: { kind: 'image', src: '/datasets/a.png' } } as any;
+    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
+    expect(loadDataset()).toBeNull();
+  });
+
+  it('returns null when image content mediaType is wrong', () => {
+    const partial = { ...d, content: { kind: 'image', src: '/datasets/a.png', mediaType: 'video/mp4' } } as any;
+    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
+    expect(loadDataset()).toBeNull();
+  });
+
+  it('returns null when video content autoplay flags are malformed', () => {
+    const partial = {
+      ...d,
+      content: { kind: 'video', src: '/datasets/a.mp4', mediaType: 'video/mp4', muted: true, autoplay: true, loop: 'yes' },
+    } as any;
     localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
     expect(loadDataset()).toBeNull();
   });
 
   it('returns null when optional catalogId is not a string', () => {
-    const partial = { ...d, catalogId: 42 } as any;
-    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
+    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify({ ...d, catalogId: 42 }));
     expect(loadDataset()).toBeNull();
   });
 
@@ -61,72 +118,80 @@ describe('dataset', () => {
     expect(loadDataset()).toBeNull();
   });
 
-  it('returns null when style.color is missing', () => {
-    const partial = { ...d, style: {} } as any;
-    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
-    expect(loadDataset()).toBeNull();
+  it('migrates a v2 catalog dataset projectionBbox to v3 bounds', () => {
+    const old = {
+      version: 2,
+      filename: 'old.geojson',
+      geojson,
+      style: { color: '#38bdf8' },
+      uploadedAt: '2026-04-22T10:00:00.000Z',
+      projectionBbox: [316385.555, 6397546.957, 322614.029, 6403932.781],
+      catalogId: 'old-catalog',
+    };
+    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(old));
+    expect(loadDataset()).toEqual({
+      version: 3,
+      filename: 'old.geojson',
+      uploadedAt: '2026-04-22T10:00:00.000Z',
+      bounds: [316385.555, 6397546.957, 322614.029, 6403932.781],
+      catalogId: 'old-catalog',
+      content: { kind: 'geojson', geojson, style: { color: '#38bdf8' } },
+    });
   });
 
-  it('returns null when geojson is not an object', () => {
-    const partial = { ...d, geojson: null } as any;
-    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
-    expect(loadDataset()).toBeNull();
+  it('migrates a v2 drag/drop dataset by deriving bounds from feature coordinates', () => {
+    const oldGeojson = {
+      type: 'FeatureCollection',
+      features: [
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [319950, 6398000] }, properties: {} },
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [320050, 6398050] }, properties: {} },
+      ],
+    };
+    localStorage.setItem(
+      'dtcc-atlaspp-mvp.dataset',
+      JSON.stringify({
+        version: 2,
+        filename: 'old.geojson',
+        geojson: oldGeojson,
+        style: { color: '#38bdf8' },
+        uploadedAt: '2026-04-22T10:00:00.000Z',
+      }),
+    );
+    expect(loadDataset()).toEqual({
+      version: 3,
+      filename: 'old.geojson',
+      uploadedAt: '2026-04-22T10:00:00.000Z',
+      bounds: [319950, 6398000, 320050, 6398050],
+      content: { kind: 'geojson', geojson: oldGeojson, style: { color: '#38bdf8' } },
+    });
   });
 
-  it('returns null when geojson.type is not FeatureCollection', () => {
-    const partial = { ...d, geojson: { type: 'Feature', features: [] } } as any;
-    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
-    expect(loadDataset()).toBeNull();
-  });
-
-  it('returns null when geojson.features is missing', () => {
-    const partial = { ...d, geojson: { type: 'FeatureCollection' } } as any;
-    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
-    expect(loadDataset()).toBeNull();
-  });
-
-  it('returns null when geojson.features is not an array', () => {
-    const partial = { ...d, geojson: { type: 'FeatureCollection', features: null } } as any;
-    localStorage.setItem('dtcc-atlaspp-mvp.dataset', JSON.stringify(partial));
+  it('returns null when a v2 dataset has no derivable bounds', () => {
+    localStorage.setItem(
+      'dtcc-atlaspp-mvp.dataset',
+      JSON.stringify({
+        version: 2,
+        filename: 'empty.geojson',
+        geojson,
+        style: { color: '#38bdf8' },
+        uploadedAt: '2026-04-22T10:00:00.000Z',
+      }),
+    );
     expect(loadDataset()).toBeNull();
   });
 });
 
 describe('bbox helpers', () => {
-  const fc = {
-    type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [319950, 6398000] },
-        properties: {},
-      },
-      {
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [320050, 6398050] },
-        properties: {},
-      },
-    ],
-  } as any;
-
-  const base: Dataset = {
-    version: 2,
+  const dataset: Dataset = {
+    version: 3,
     filename: 'bbox.geojson',
-    geojson: fc,
-    style: { color: '#38bdf8' },
+    bounds: [319720, 6397660, 320220, 6398160],
+    content: { kind: 'geojson', geojson: { type: 'FeatureCollection', features: [] } as any, style: { color: '#38bdf8' } },
     uploadedAt: '2026-05-04T10:00:00.000Z',
   };
 
-  it('datasetFitBbox returns projectionBbox when present', () => {
-    const dataset: Dataset = {
-      ...base,
-      projectionBbox: [316385.555, 6397546.957, 322614.029, 6403932.781],
-    };
-    expect(datasetFitBbox(dataset)).toEqual([316385.555, 6397546.957, 322614.029, 6403932.781]);
-  });
-
-  it('datasetFitBbox falls back to featureCollectionBbox when projectionBbox is absent', () => {
-    expect(datasetFitBbox(base)).toEqual([319950, 6398000, 320050, 6398050]);
+  it('datasetFitBbox returns dataset bounds', () => {
+    expect(datasetFitBbox(dataset)).toEqual([319720, 6397660, 320220, 6398160]);
   });
 
   it('bboxEqual uses tuple-exact equality and requires both sides', () => {
@@ -181,7 +246,7 @@ describe('calibration', () => {
   });
 });
 
-describe('migration: version 1 → 2', () => {
+describe('old storage versions', () => {
   it('a v1 dataset blob in localStorage is rejected by loadDataset', () => {
     localStorage.setItem(
       'dtcc-atlaspp-mvp.dataset',

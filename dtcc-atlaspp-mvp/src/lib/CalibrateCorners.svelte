@@ -1,7 +1,10 @@
 <script lang="ts">
   import { featuresToRenderables, type Renderable } from './geojsonRender';
   import { solveHomography, toMatrix3d, isDegenerate } from './homography';
+  import MediaLayer from './MediaLayer.svelte';
   import { datasetFitBbox, type Dataset } from './storage';
+
+  type MediaFrame = { x: number; y: number; width: number; height: number };
 
   let { dataset, panX, panY, onCornersChange, seedCorners } = $props<{
     dataset: Dataset;
@@ -197,11 +200,19 @@
   });
 
   const renderables = $derived.by<Renderable[]>(() => {
-    if (!projection) return [];
-    return featuresToRenderables(dataset.geojson, projection);
+    if (dataset.content.kind !== 'geojson' || !projection) return [];
+    return featuresToRenderables(dataset.content.geojson, projection);
   });
 
-  const color = $derived(dataset.style.color);
+  const mediaFrame = $derived.by<MediaFrame | null>(() => {
+    if (dataset.content.kind === 'geojson' || !projection) return null;
+    const [minX, minY, maxX, maxY] = dataset.bounds;
+    const [x, y] = projection(minX, maxY);
+    const [right, bottom] = projection(maxX, minY);
+    return { x, y, width: right - x, height: bottom - y };
+  });
+
+  const color = $derived(dataset.content.kind === 'geojson' ? dataset.content.style.color : '#38bdf8');
 </script>
 
 <div class="fixed inset-0 bg-black select-none" style="touch-action: none">
@@ -210,6 +221,9 @@
     class="absolute inset-0 pointer-events-none"
     style="transform: {transformCss}; transform-origin: 0 0;"
   >
+    {#if dataset.content.kind !== 'geojson' && mediaFrame}
+      <MediaLayer content={dataset.content} frame={mediaFrame} />
+    {/if}
     <svg
       class="absolute inset-0"
       width={width}
@@ -226,17 +240,19 @@
         stroke="#FADA36"
         stroke-width="2"
       />
-      <g fill-rule="evenodd">
-        {#each renderables as r, i (i)}
-          {#if r.kind === 'polygon'}
-            <path d={r.d} fill={color} fill-opacity="0.45" stroke={color} stroke-width="2" />
-          {:else if r.kind === 'line'}
-            <path d={r.d} fill="none" stroke={color} stroke-width="2" />
-          {:else}
-            <circle cx={r.cx} cy={r.cy} r="4" fill={color} stroke="#fff" stroke-width="1" />
-          {/if}
-        {/each}
-      </g>
+      {#if dataset.content.kind === 'geojson'}
+        <g fill-rule="evenodd">
+          {#each renderables as r, i (i)}
+            {#if r.kind === 'polygon'}
+              <path d={r.d} fill={color} fill-opacity="0.45" stroke={color} stroke-width="2" />
+            {:else if r.kind === 'line'}
+              <path d={r.d} fill="none" stroke={color} stroke-width="2" />
+            {:else}
+              <circle cx={r.cx} cy={r.cy} r="4" fill={color} stroke="#fff" stroke-width="1" />
+            {/if}
+          {/each}
+        </g>
+      {/if}
     </svg>
   </div>
 

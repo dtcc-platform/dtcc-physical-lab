@@ -1,6 +1,9 @@
 <script lang="ts">
   import { featuresToRenderables, type Renderable } from './geojsonRender';
+  import MediaLayer from './MediaLayer.svelte';
   import { datasetFitBbox, type Dataset } from './storage';
+
+  type MediaFrame = { x: number; y: number; width: number; height: number };
 
   let { dataset } = $props<{ dataset: Dataset | null }>();
 
@@ -46,33 +49,45 @@
   });
 
   const renderables = $derived.by<Renderable[]>(() => {
-    if (!dataset || !projection) return [];
-    return featuresToRenderables(dataset.geojson, projection);
+    if (!dataset || dataset.content.kind !== 'geojson' || !projection) return [];
+    return featuresToRenderables(dataset.content.geojson, projection);
   });
 
-  const color = $derived(dataset?.style.color ?? '#38bdf8');
+  const mediaFrame = $derived.by<MediaFrame | null>(() => {
+    if (!dataset || dataset.content.kind === 'geojson' || !projection) return null;
+    const [minX, minY, maxX, maxY] = dataset.bounds;
+    const [x, y] = projection(minX, maxY);
+    const [right, bottom] = projection(maxX, minY);
+    return { x, y, width: right - x, height: bottom - y };
+  });
+
+  const color = $derived(dataset?.content.kind === 'geojson' ? dataset.content.style.color : '#38bdf8');
 </script>
 
 <div class="fixed inset-0 bg-black">
   {#if dataset && projection}
-    <svg
-      class="absolute inset-0"
-      width={width}
-      height={height}
-      viewBox={`0 0 ${width} ${height}`}
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <g fill-rule="evenodd">
-        {#each renderables as r, i (i)}
-          {#if r.kind === 'polygon'}
-            <path d={r.d} fill={color} fill-opacity="0.45" stroke={color} stroke-width="2" />
-          {:else if r.kind === 'line'}
-            <path d={r.d} fill="none" stroke={color} stroke-width="2" />
-          {:else}
-            <circle cx={r.cx} cy={r.cy} r="4" fill={color} stroke="#fff" stroke-width="1" />
-          {/if}
-        {/each}
-      </g>
-    </svg>
+    {#if dataset.content.kind === 'geojson'}
+      <svg
+        class="absolute inset-0"
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <g fill-rule="evenodd">
+          {#each renderables as r, i (i)}
+            {#if r.kind === 'polygon'}
+              <path d={r.d} fill={color} fill-opacity="0.45" stroke={color} stroke-width="2" />
+            {:else if r.kind === 'line'}
+              <path d={r.d} fill="none" stroke={color} stroke-width="2" />
+            {:else}
+              <circle cx={r.cx} cy={r.cy} r="4" fill={color} stroke="#fff" stroke-width="1" />
+            {/if}
+          {/each}
+        </g>
+      </svg>
+    {:else if mediaFrame}
+      <MediaLayer content={dataset.content} frame={mediaFrame} />
+    {/if}
   {/if}
 </div>
