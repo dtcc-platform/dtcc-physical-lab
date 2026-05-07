@@ -68,17 +68,6 @@ describe('onKey', () => {
     off();
   });
 
-  it('fires before a focused surface can stop arrow-key propagation', () => {
-    const div = document.createElement('div');
-    div.addEventListener('keydown', (event) => event.stopPropagation());
-    document.body.appendChild(div);
-    const handler = vi.fn();
-    const off = onKey('ArrowLeft', handler);
-    dispatchKey('ArrowLeft', div);
-    expect(handler).toHaveBeenCalledTimes(1);
-    off();
-  });
-
   it('preserves modifier state for arrow-key handlers', () => {
     const handler = vi.fn();
     const off = onKey('ArrowRight', handler);

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "catalog:ingest": "node scripts/ingest-dtcc-manifests.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
