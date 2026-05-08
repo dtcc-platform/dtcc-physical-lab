@@ -26,6 +26,7 @@ export type DtccManifestFileSelection = {
   manifest: DtccManifest;
   artifact: File | null;
   missingArtifact: string | null;
+  manifestPath?: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -49,6 +50,20 @@ function basename(file: string): string {
   return file.split(/[\\/]/).pop() ?? file;
 }
 
+function fileRelativePath(file: File): string | null {
+  const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+  return typeof relativePath === 'string' && relativePath.length > 0 ? relativePath.replace(/\\/g, '/') : null;
+}
+
+function dirname(file: string): string {
+  const i = file.lastIndexOf('/');
+  return i === -1 ? '' : file.slice(0, i);
+}
+
+function joinRelativePath(base: string, file: string): string {
+  return base.length > 0 ? `${base}/${file}` : file;
+}
+
 function slugify(value: string): string {
   return value
     .trim()
@@ -70,13 +85,25 @@ function formatName(manifest: Record<string, unknown>): string {
   return typeof manifest.format === 'string' && manifest.format.length > 0 ? manifest.format.toLowerCase() : 'unknown';
 }
 
-function visualizationMetadata(value: unknown): ManifestVisualization | undefined {
-  if (!isRecord(value)) return undefined;
+function parseVisualizationMetadata(value: unknown, manifestPath: string): ManifestInputResult<ManifestVisualization | undefined> {
+  if (value === undefined) return { ok: true, value: undefined };
+  if (!isRecord(value)) return { ok: false, error: `${manifestPath} visualization must be an object when present` };
+
   const out: ManifestVisualization = {};
-  for (const key of ['profile', 'width', 'height', 'fps', 'duration'] as const) {
-    if (value[key] !== undefined) out[key] = value[key] as never;
+  if (value.profile !== undefined) {
+    if (typeof value.profile !== 'string') {
+      return { ok: false, error: `${manifestPath} visualization.profile must be a string` };
+    }
+    out.profile = value.profile;
   }
-  return Object.keys(out).length > 0 ? out : undefined;
+  for (const key of ['width', 'height', 'fps', 'duration'] as const) {
+    if (value[key] === undefined) continue;
+    if (typeof value[key] !== 'number' || !Number.isFinite(value[key])) {
+      return { ok: false, error: `${manifestPath} visualization.${key} must be a finite number` };
+    }
+    out[key] = value[key];
+  }
+  return { ok: true, value: Object.keys(out).length > 0 ? out : undefined };
 }
 
 function kindForManifest(manifest: Record<string, unknown>): ManifestInputResult<{
@@ -135,7 +162,8 @@ export function parseDtccManifestText(manifestPath: string, text: string): Manif
       : slugify(typeof parsed.name === 'string' && parsed.name.trim().length > 0 ? parsed.name : artifactName);
   const title =
     typeof parsed.title === 'string' && parsed.title.trim().length > 0 ? parsed.title.trim() : titleFromId(id);
-  const visualization = visualizationMetadata(parsed.visualization);
+  const visualization = parseVisualizationMetadata(parsed.visualization, manifestPath);
+  if (!visualization.ok) return visualization;
 
   return {
     ok: true,
@@ -146,23 +174,36 @@ export function parseDtccManifestText(manifestPath: string, text: string): Manif
       ...(parsed.description !== undefined ? { description: parsed.description } : {}),
       bounds: parsed.bounds,
       ...manifestKind.value,
-      ...(visualization !== undefined ? { visualization } : {}),
+      ...(visualization.value !== undefined ? { visualization: visualization.value } : {}),
     },
   };
 }
 
 export async function readDtccManifestFile(file: File): Promise<ManifestInputResult<DtccManifest>> {
-  return parseDtccManifestText(file.name, await file.text());
+  return parseDtccManifestText(fileRelativePath(file) ?? file.name, await file.text());
 }
 
-export function findManifestArtifact(files: File[], manifest: DtccManifest): File | null {
-  return (
-    files.find((file) => {
-      if (isDtccManifestFile(file)) return false;
-      const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
-      return file.name === manifest.artifactName || relativePath === manifest.file;
-    }) ?? null
+function manifestArtifactPath(manifestFile: File, manifest: DtccManifest): string | null {
+  const manifestPath = fileRelativePath(manifestFile);
+  return manifestPath ? joinRelativePath(dirname(manifestPath), manifest.file) : null;
+}
+
+function unsupportedManifestError(error: string): boolean {
+  return error.startsWith('format ') && error.includes(' is not supported by the Atlas wizard');
+}
+
+export function findManifestArtifact(files: File[], manifest: DtccManifest, manifestFile?: File): File | null {
+  const expectedPath = manifestFile ? manifestArtifactPath(manifestFile, manifest) : null;
+  if (expectedPath) {
+    return files.find((file) => !isDtccManifestFile(file) && fileRelativePath(file) === expectedPath) ?? null;
+  }
+
+  const relativeMatch = files.find(
+    (file) => !isDtccManifestFile(file) && fileRelativePath(file) === manifest.file
   );
+  if (relativeMatch) return relativeMatch;
+
+  return files.find((file) => !isDtccManifestFile(file) && file.name === manifest.artifactName) ?? null;
 }
 
 export async function resolveDtccManifestFiles(files: File[]): Promise<ManifestInputResult<DtccManifestFileSelection>> {
@@ -172,7 +213,7 @@ export async function resolveDtccManifestFiles(files: File[]): Promise<ManifestI
   const manifest = await readDtccManifestFile(manifestFile);
   if (!manifest.ok) return manifest;
 
-  const artifact = findManifestArtifact(files, manifest.value);
+  const artifact = findManifestArtifact(files, manifest.value, manifestFile);
   return {
     ok: true,
     value: {
@@ -181,4 +222,34 @@ export async function resolveDtccManifestFiles(files: File[]): Promise<ManifestI
       missingArtifact: artifact ? null : manifest.value.file,
     },
   };
+}
+
+export async function resolveDtccManifestFolder(files: File[]): Promise<ManifestInputResult<DtccManifestFileSelection[]>> {
+  const manifestFiles = files.filter(isDtccManifestFile);
+  if (manifestFiles.length === 0) return { ok: false, error: 'folder does not include a dtcc manifest' };
+
+  const selections: DtccManifestFileSelection[] = [];
+  for (const manifestFile of manifestFiles) {
+    const manifest = await readDtccManifestFile(manifestFile);
+    if (!manifest.ok) {
+      if (unsupportedManifestError(manifest.error)) continue;
+      return manifest;
+    }
+
+    const manifestPath = fileRelativePath(manifestFile);
+    const artifact = findManifestArtifact(files, manifest.value, manifestFile);
+    const expectedPath = manifestArtifactPath(manifestFile, manifest.value) ?? manifest.value.file;
+    selections.push({
+      manifest: manifest.value,
+      artifact,
+      missingArtifact: artifact ? null : expectedPath,
+      ...(manifestPath !== null ? { manifestPath } : {}),
+    });
+  }
+
+  if (selections.length === 0) {
+    return { ok: false, error: 'folder does not include a supported dtcc manifest' };
+  }
+
+  return { ok: true, value: selections };
 }

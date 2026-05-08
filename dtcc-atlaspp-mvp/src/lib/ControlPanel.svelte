@@ -3,8 +3,10 @@
   import {
     findManifestArtifact,
     isDtccManifestFile,
+    resolveDtccManifestFolder,
     resolveDtccManifestFiles,
     type DtccManifest,
+    type DtccManifestFileSelection,
   } from './dtccManifest';
   import { validateGeoJSON, defaultStyle, featureCollectionBbox, type FeatureCollection } from './geojson';
   import type { Bbox, Dataset, DatasetContent } from './storage';
@@ -46,9 +48,12 @@
   let error = $state<string | null>(null);
   let dragging = $state(false);
   let fileInput = $state<HTMLInputElement | null>(null);
+  let folderInput = $state<HTMLInputElement | null>(null);
   let catalogEntries = $state<CatalogEntry[]>([]);
   let sampleLoading = $state(false);
   let pendingManifest = $state<DtccManifest | null>(null);
+  let folderManifestSelections = $state<DtccManifestFileSelection[]>([]);
+  let selectedFolderManifestId = $state('');
   let localObjectUrl: string | null = null;
 
   type PanelPosition = { x: number; y: number };
@@ -182,6 +187,13 @@
     fileInput.click();
   }
 
+  function openFolderPicker() {
+    pauseAutoHide();
+    if (!folderInput) return;
+    folderInput.value = '';
+    folderInput.click();
+  }
+
   function resetTimer() {
     visible = true;
     clearHideTimer();
@@ -296,6 +308,24 @@
     return (name.endsWith('.geojson') || name.endsWith('.json')) && !isDtccManifestFile(file);
   }
 
+  function clearFolderManifestSelections() {
+    folderManifestSelections = [];
+    selectedFolderManifestId = '';
+  }
+
+  function folderManifestId(selection: DtccManifestFileSelection, index: number): string {
+    return selection.manifestPath ?? `${selection.manifest.title}-${index}`;
+  }
+
+  async function loadFolderManifestSelection(selection: DtccManifestFileSelection) {
+    if (!selection.artifact) {
+      error = `manifest references ${selection.missingArtifact}; selected folder does not include it`;
+      return;
+    }
+    error = null;
+    await loadManifestArtifact(selection.manifest, selection.artifact);
+  }
+
   async function handleSampleChange(e: Event) {
     const id = (e.currentTarget as HTMLSelectElement).value;
     const entry = catalogEntries.find((candidate) => candidate.id === id);
@@ -303,6 +333,7 @@
 
     error = null;
     pendingManifest = null;
+    clearFolderManifestSelections();
     sampleLoading = true;
     try {
       const src = datasetUrl(entry.file);
@@ -373,6 +404,7 @@
       error = 'GeoJSON has no projectable coordinates';
       return;
     }
+    clearFolderManifestSelections();
     revokeLocalObjectUrl();
     onLoadDataset({
       filename: file.name,
@@ -449,6 +481,7 @@
     if (files.length === 0) return;
 
     error = null;
+    clearFolderManifestSelections();
 
     try {
       if (pendingManifest) {
@@ -475,8 +508,13 @@
           return;
         }
         if (!selection.value.artifact) {
-          pendingManifest = selection.value.manifest;
-          error = `manifest references ${selection.value.missingArtifact}; select that file too`;
+          if (selection.value.manifest.kind === 'geojson') {
+            pendingManifest = selection.value.manifest;
+            error = `manifest references ${selection.value.missingArtifact}; select that GeoJSON file too`;
+          } else {
+            pendingManifest = null;
+            error = `manifest references ${selection.value.missingArtifact}; pick the containing folder to load its media artifact`;
+          }
           return;
         }
         await loadManifestArtifact(selection.value.manifest, selection.value.artifact);
@@ -485,7 +523,7 @@
 
       const file = files[0];
       if (isMediaArtifactFile(file)) {
-        error = `${file.name} needs its .manifest.json file; select both files together`;
+        error = `${file.name} needs its .manifest.json file; pick the containing folder`;
         return;
       }
       await handleGeoJsonFile(file);
@@ -494,9 +532,47 @@
     }
   }
 
+  async function handleFolderFiles(inputFiles: FileList | File[]) {
+    const files = Array.from(inputFiles);
+    if (files.length === 0) return;
+
+    error = null;
+    pendingManifest = null;
+
+    try {
+      const selection = await resolveDtccManifestFolder(files);
+      if (!selection.ok) {
+        clearFolderManifestSelections();
+        error = selection.error;
+        return;
+      }
+
+      folderManifestSelections = selection.value;
+      if (selection.value.length === 1) {
+        selectedFolderManifestId = folderManifestId(selection.value[0], 0);
+        await loadFolderManifestSelection(selection.value[0]);
+      } else {
+        selectedFolderManifestId = '';
+      }
+    } catch (err) {
+      error = (err as Error).message;
+    }
+  }
+
+  async function handleFolderManifestChange(e: Event) {
+    const id = (e.currentTarget as HTMLSelectElement).value;
+    const index = folderManifestSelections.findIndex((selection, i) => folderManifestId(selection, i) === id);
+    if (index === -1) return;
+
+    selectedFolderManifestId = id;
+    await loadFolderManifestSelection(folderManifestSelections[index]);
+    resetTimer();
+  }
+
   function handleClear() {
     error = null;
     pendingManifest = null;
+    clearFolderManifestSelections();
     revokeLocalObjectUrl();
     onClearDataset();
   }
@@ -520,6 +596,12 @@
   async function onFileInput(e: Event) {
     const files = (e.target as HTMLInputElement).files;
     if (files?.length) await handleFiles(files);
+    resetTimer();
+  }
+
+  async function onFolderInput(e: Event) {
+    const files = (e.target as HTMLInputElement).files;
+    if (files?.length) await handleFolderFiles(files);
     resetTimer();
   }
 
@@ -572,6 +654,25 @@
       </div>
     {/if}
 
+    {#if folderManifestSelections.length > 1}
+      <div class="mb-3">
+        <label class="block text-xs font-medium mb-1" for="folder-manifest">Folder manifest</label>
+        <select
+          id="folder-manifest"
+          class="w-full text-xs rounded border border-dtcc-border bg-white px-2 py-1"
+          value={selectedFolderManifestId}
+          onchange={handleFolderManifestChange}
+        >
+          <option value="" disabled>Select a manifest...</option>
+          {#each folderManifestSelections as selection, i}
+            <option value={folderManifestId(selection, i)}>
+              {selection.manifest.title} ({selection.manifest.format.toUpperCase()})
+            </option>
+          {/each}
+        </select>
+      </div>
+    {/if}
+
     <div
       role="region"
       aria-label="Dataset drop zone"
@@ -594,16 +695,34 @@
         class="text-xs text-dtcc-orange cursor-pointer underline mt-1 inline-block focus:outline-none focus:ring-2 focus:ring-dtcc-orange rounded"
         onclick={openFilePicker}
       >
-        {pendingManifest ? `or pick ${pendingManifest.artifactName}` : dataset ? 'or pick a different file' : 'or pick a file'}
+        {pendingManifest ? `or pick ${pendingManifest.artifactName}` : dataset ? 'or pick different files' : 'or pick files'}
+      </button>
+      <button
+        type="button"
+        class="text-xs text-dtcc-orange cursor-pointer underline mt-1 ml-2 inline-block focus:outline-none focus:ring-2 focus:ring-dtcc-orange rounded"
+        onclick={openFolderPicker}
+      >
+        pick a folder
       </button>
       <input
         bind:this={fileInput}
         type="file"
         multiple
-        accept=".geojson,.json,.manifest.json,.png,.mp4,application/geo+json,application/json,image/png,video/mp4"
+        accept=".geojson,.json,.manifest.json,application/geo+json,application/json"
+        aria-label="Dataset files"
         class="sr-only"
         oncancel={resetTimer}
         onchange={onFileInput}
+      />
+      <input
+        bind:this={folderInput}
+        type="file"
+        multiple
+        webkitdirectory
+        aria-label="Dataset folder"
+        class="sr-only"
+        oncancel={resetTimer}
+        onchange={onFolderInput}
       />
     </div>
 
