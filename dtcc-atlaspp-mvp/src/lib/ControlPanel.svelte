@@ -42,6 +42,22 @@
   let catalogEntries = $state<CatalogEntry[]>([]);
   let sampleLoading = $state(false);
 
+  type PanelPosition = { x: number; y: number };
+  type PanelDrag = {
+    pointerId: number;
+    offsetX: number;
+    offsetY: number;
+    target: HTMLElement;
+  };
+
+  const PANEL_POSITION_KEY = 'dtcc-atlaspp-mvp.controlPanelPosition';
+  const PANEL_MARGIN = 16;
+
+  let panelEl = $state<HTMLElement | null>(null);
+  let position = $state<PanelPosition | null>(null);
+  let panelDrag = $state<PanelDrag | null>(null);
+  const panelStyle = $derived(position ? `left: ${position.x}px; top: ${position.y}px;` : undefined);
+
   function clearHideTimer() {
     if (hideTimer != null) {
       window.clearTimeout(hideTimer);
@@ -52,6 +68,102 @@
   function pauseAutoHide() {
     visible = true;
     clearHideTimer();
+  }
+
+  function isPanelPosition(value: unknown): value is PanelPosition {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const candidate = value as Record<string, unknown>;
+    return (
+      typeof candidate.x === 'number' &&
+      Number.isFinite(candidate.x) &&
+      typeof candidate.y === 'number' &&
+      Number.isFinite(candidate.y)
+    );
+  }
+
+  function loadPanelPosition(): PanelPosition | null {
+    const raw = localStorage.getItem(PANEL_POSITION_KEY);
+    if (raw == null) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return isPanelPosition(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function clampPanelPosition(next: PanelPosition): PanelPosition {
+    const rect = panelEl?.getBoundingClientRect();
+    const width = rect?.width ?? 320;
+    const height = rect?.height ?? 0;
+    const maxX = Math.max(PANEL_MARGIN, window.innerWidth - width - PANEL_MARGIN);
+    const maxY = Math.max(PANEL_MARGIN, window.innerHeight - height - PANEL_MARGIN);
+
+    return {
+      x: Math.min(Math.max(next.x, PANEL_MARGIN), maxX),
+      y: Math.min(Math.max(next.y, PANEL_MARGIN), maxY),
+    };
+  }
+
+  function savePanelPosition(next: PanelPosition) {
+    const clamped = clampPanelPosition(next);
+    position = clamped;
+    localStorage.setItem(PANEL_POSITION_KEY, JSON.stringify(clamped));
+  }
+
+  function reclampSavedPanelPosition() {
+    if (!position) return;
+    const clamped = clampPanelPosition(position);
+    if (clamped.x === position.x && clamped.y === position.y) return;
+    position = clamped;
+    localStorage.setItem(PANEL_POSITION_KEY, JSON.stringify(clamped));
+  }
+
+  function isInteractivePanelTarget(target: EventTarget | null): boolean {
+    return (
+      target instanceof Element &&
+      !!target.closest('button,input,select,textarea,a,[role="button"]')
+    );
+  }
+
+  function startPanelDrag(e: PointerEvent) {
+    if (e.button !== 0) return;
+    if (!panelEl || isInteractivePanelTarget(e.target)) return;
+
+    e.preventDefault();
+    const rect = panelEl.getBoundingClientRect();
+    const origin = clampPanelPosition(position ?? { x: rect.left, y: rect.top });
+    const target = e.currentTarget as HTMLElement;
+
+    position = origin;
+    panelDrag = {
+      pointerId: e.pointerId,
+      offsetX: e.clientX - origin.x,
+      offsetY: e.clientY - origin.y,
+      target,
+    };
+    target.setPointerCapture(e.pointerId);
+    pauseAutoHide();
+  }
+
+  function movePanel(e: PointerEvent) {
+    if (!panelDrag || e.pointerId !== panelDrag.pointerId) return;
+    position = clampPanelPosition({
+      x: e.clientX - panelDrag.offsetX,
+      y: e.clientY - panelDrag.offsetY,
+    });
+    pauseAutoHide();
+  }
+
+  function endPanelDrag(e: PointerEvent) {
+    if (!panelDrag || e.pointerId !== panelDrag.pointerId) return;
+    const drag = panelDrag;
+    if (drag.target.hasPointerCapture(e.pointerId)) {
+      drag.target.releasePointerCapture(e.pointerId);
+    }
+    panelDrag = null;
+    if (position) savePanelPosition(position);
+    resetTimer();
   }
 
   function openFilePicker() {
@@ -86,6 +198,27 @@
       window.removeEventListener('pointermove', resetTimer);
       clearHideTimer();
     };
+  });
+
+  $effect(() => {
+    const saved = loadPanelPosition();
+    if (saved) position = clampPanelPosition(saved);
+
+    function onResize() {
+      reclampSavedPanelPosition();
+    }
+
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+    };
+  });
+
+  $effect(() => {
+    if (!panelEl) return;
+    const observer = new ResizeObserver(reclampSavedPanelPosition);
+    observer.observe(panelEl);
+    return () => observer.disconnect();
   });
 
   $effect(() => {
@@ -245,13 +378,22 @@
 
 {#if visible}
   <section
-    class="fixed bottom-4 right-4 w-80 bg-white/95 text-dtcc-dark rounded-lg shadow-xl p-4 pointer-events-auto z-50"
+    bind:this={panelEl}
+    class="fixed {position === null ? 'bottom-4 right-4' : ''} w-80 bg-white/95 text-dtcc-dark rounded-lg shadow-xl p-4 pointer-events-auto z-50"
+    style={panelStyle}
     aria-label="DTCC Atlas++ controls"
   >
-    <header class="flex items-center justify-between mb-2">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <header
+      class="flex items-center justify-between mb-2 cursor-move select-none touch-none"
+      onpointerdown={startPanelDrag}
+      onpointermove={movePanel}
+      onpointerup={endPanelDrag}
+      onpointercancel={endPanelDrag}
+    >
       <h2 class="text-sm font-semibold">DTCC Atlas++ MVP</h2>
       {#if autoHide}
-        <button class="text-xs text-dtcc-muted" onclick={() => (visible = false)}>hide</button>
+        <button class="text-xs text-dtcc-muted cursor-pointer" onclick={() => (visible = false)}>hide</button>
       {/if}
     </header>
 
