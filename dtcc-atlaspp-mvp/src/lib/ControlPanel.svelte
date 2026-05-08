@@ -1,5 +1,11 @@
 <script lang="ts">
   import { parseCatalog, type CatalogEntry } from './catalog';
+  import {
+    findManifestArtifact,
+    isDtccManifestFile,
+    resolveDtccManifestFiles,
+    type DtccManifest,
+  } from './dtccManifest';
   import { validateGeoJSON, defaultStyle, featureCollectionBbox, type FeatureCollection } from './geojson';
   import type { Bbox, Dataset, DatasetContent } from './storage';
 
@@ -23,10 +29,11 @@
     onLoadSample?: (d: {
       filename: string;
       bounds: Bbox;
-      catalogId: string;
+      catalogId?: string;
       title: string;
       description?: string;
       content: DatasetContent;
+      persist?: boolean;
     }) => void;
     onClearDataset: () => void;
     onSetColor: (color: string) => void;
@@ -41,6 +48,8 @@
   let fileInput = $state<HTMLInputElement | null>(null);
   let catalogEntries = $state<CatalogEntry[]>([]);
   let sampleLoading = $state(false);
+  let pendingManifest = $state<DtccManifest | null>(null);
+  let localObjectUrl: string | null = null;
 
   type PanelPosition = { x: number; y: number };
   type PanelDrag = {
@@ -266,12 +275,34 @@
     });
   }
 
+  function revokeLocalObjectUrl() {
+    if (!localObjectUrl) return;
+    URL.revokeObjectURL(localObjectUrl);
+    localObjectUrl = null;
+  }
+
+  function rememberLocalObjectUrl(src: string) {
+    revokeLocalObjectUrl();
+    localObjectUrl = src;
+  }
+
+  function isMediaArtifactFile(file: File): boolean {
+    const name = file.name.toLowerCase();
+    return name.endsWith('.png') || name.endsWith('.mp4') || file.type === 'image/png' || file.type === 'video/mp4';
+  }
+
+  function isGeoJsonFile(file: File): boolean {
+    const name = file.name.toLowerCase();
+    return (name.endsWith('.geojson') || name.endsWith('.json')) && !isDtccManifestFile(file);
+  }
+
   async function handleSampleChange(e: Event) {
     const id = (e.currentTarget as HTMLSelectElement).value;
     const entry = catalogEntries.find((candidate) => candidate.id === id);
     if (!entry) return;
 
     error = null;
+    pendingManifest = null;
     sampleLoading = true;
     try {
       const src = datasetUrl(entry.file);
@@ -286,6 +317,7 @@
           error = result.error;
           return;
         }
+        revokeLocalObjectUrl();
         onLoadSample({
           filename: entry.file,
           bounds: entry.bounds,
@@ -296,6 +328,7 @@
         });
       } else if (entry.kind === 'image') {
         await loadImage(src);
+        revokeLocalObjectUrl();
         onLoadSample({
           filename: entry.file,
           bounds: entry.bounds,
@@ -306,6 +339,7 @@
         });
       } else {
         await loadVideo(src);
+        revokeLocalObjectUrl();
         onLoadSample({
           filename: entry.file,
           bounds: entry.bounds,
@@ -323,8 +357,7 @@
     }
   }
 
-  async function handleFile(file: File) {
-    error = null;
+  async function handleGeoJsonFile(file: File) {
     if (file.size > 10 * 1024 * 1024) {
       error = 'file too large (>10 MB); simplify the GeoJSON first';
       return;
@@ -340,6 +373,7 @@
       error = 'GeoJSON has no projectable coordinates';
       return;
     }
+    revokeLocalObjectUrl();
     onLoadDataset({
       filename: file.name,
       geojson: result.value,
@@ -348,16 +382,130 @@
     });
   }
 
+  async function loadManifestArtifact(manifest: DtccManifest, artifact: File) {
+    pendingManifest = null;
+
+    if (manifest.kind === 'geojson') {
+      if (artifact.size > 10 * 1024 * 1024) {
+        error = 'file too large (>10 MB); simplify the GeoJSON first';
+        return;
+      }
+      const result = validateGeoJSON(await artifact.text());
+      if (!result.ok) {
+        error = result.error;
+        return;
+      }
+      revokeLocalObjectUrl();
+      onLoadSample({
+        filename: artifact.name,
+        bounds: manifest.bounds,
+        title: manifest.title,
+        ...(manifest.description !== undefined ? { description: manifest.description } : {}),
+        content: { kind: 'geojson', geojson: result.value, style: defaultStyle() },
+      });
+      return;
+    }
+
+    if (manifest.kind === 'image') {
+      const src = URL.createObjectURL(artifact);
+      try {
+        await loadImage(src);
+      } catch (err) {
+        URL.revokeObjectURL(src);
+        throw err;
+      }
+      rememberLocalObjectUrl(src);
+      onLoadSample({
+        filename: artifact.name,
+        bounds: manifest.bounds,
+        title: manifest.title,
+        ...(manifest.description !== undefined ? { description: manifest.description } : {}),
+        content: { kind: 'image', src, mediaType: 'image/png' },
+        persist: false,
+      });
+      return;
+    }
+
+    const src = URL.createObjectURL(artifact);
+    try {
+      await loadVideo(src);
+    } catch (err) {
+      URL.revokeObjectURL(src);
+      throw err;
+    }
+    rememberLocalObjectUrl(src);
+    onLoadSample({
+      filename: artifact.name,
+      bounds: manifest.bounds,
+      title: manifest.title,
+      ...(manifest.description !== undefined ? { description: manifest.description } : {}),
+      content: { kind: 'video', src, mediaType: 'video/mp4', muted: true, autoplay: true, loop: true },
+      persist: false,
+    });
+  }
+
+  async function handleFiles(inputFiles: FileList | File[]) {
+    const files = Array.from(inputFiles);
+    if (files.length === 0) return;
+
+    error = null;
+
+    try {
+      if (pendingManifest) {
+        const artifact = findManifestArtifact(files, pendingManifest);
+        if (artifact) {
+          await loadManifestArtifact(pendingManifest, artifact);
+          return;
+        }
+        if (!files.some(isDtccManifestFile)) {
+          if (files.length === 1 && isGeoJsonFile(files[0])) {
+            pendingManifest = null;
+            await handleGeoJsonFile(files[0]);
+            return;
+          }
+          error = `manifest references ${pendingManifest.file}; select that file too`;
+          return;
+        }
+      }
+
+      if (files.some(isDtccManifestFile)) {
+        const selection = await resolveDtccManifestFiles(files);
+        if (!selection.ok) {
+          error = selection.error;
+          return;
+        }
+        if (!selection.value.artifact) {
+          pendingManifest = selection.value.manifest;
+          error = `manifest references ${selection.value.missingArtifact}; select that file too`;
+          return;
+        }
+        await loadManifestArtifact(selection.value.manifest, selection.value.artifact);
+        return;
+      }
+
+      const file = files[0];
+      if (isMediaArtifactFile(file)) {
+        error = `${file.name} needs its .manifest.json file; select both files together`;
+        return;
+      }
+      await handleGeoJsonFile(file);
+    } catch (err) {
+      error = (err as Error).message;
+    }
+  }
+
   function handleClear() {
     error = null;
+    pendingManifest = null;
+    revokeLocalObjectUrl();
     onClearDataset();
   }
 
   function onDrop(e: DragEvent) {
     e.preventDefault();
     dragging = false;
-    const file = e.dataTransfer?.files?.[0];
-    if (file) handleFile(file);
+    const files = e.dataTransfer?.files;
+    if (files?.length) void handleFiles(files);
   }
 
   function onDragOver(e: DragEvent) {
@@ -370,10 +518,14 @@
   }
 
   async function onFileInput(e: Event) {
-    const file = (e.target as HTMLInputElement).files?.[0];
-    if (file) await handleFile(file);
+    const files = (e.target as HTMLInputElement).files;
+    if (files?.length) await handleFiles(files);
     resetTimer();
   }
+
+  $effect(() => {
+    return () => revokeLocalObjectUrl();
+  });
 </script>
 
 {#if visible}
@@ -422,29 +574,33 @@
 
     <div
       role="region"
-      aria-label="GeoJSON drop zone"
+      aria-label="Dataset drop zone"
       class="border-2 border-dashed rounded p-4 text-center text-sm transition-colors {dragging ? 'border-dtcc-orange bg-dtcc-orange/10' : 'border-dtcc-border'}"
       ondragover={onDragOver}
       ondragleave={onDragLeave}
       ondrop={onDrop}
     >
-      {#if dataset}
+      {#if pendingManifest}
+        <div class="font-medium truncate">Pick {pendingManifest.artifactName}</div>
+        <div class="text-xs text-dtcc-muted mt-1">Referenced by {pendingManifest.title}</div>
+      {:else if dataset}
         <div class="font-medium truncate">{dataset.filename}</div>
         <div class="text-xs text-dtcc-muted mt-1">Drop a new file to replace</div>
       {:else}
-        <div class="font-medium">Drop a .geojson here</div>
+        <div class="font-medium">Drop a .geojson or dtcc manifest here</div>
       {/if}
       <button
         type="button"
         class="text-xs text-dtcc-orange cursor-pointer underline mt-1 inline-block focus:outline-none focus:ring-2 focus:ring-dtcc-orange rounded"
         onclick={openFilePicker}
       >
-        {dataset ? 'or pick a different file' : 'or pick a file'}
+        {pendingManifest ? `or pick ${pendingManifest.artifactName}` : dataset ? 'or pick a different file' : 'or pick a file'}
       </button>
       <input
         bind:this={fileInput}
         type="file"
-        accept=".geojson,.json,application/geo+json,application/json"
+        multiple
+        accept=".geojson,.json,.manifest.json,.png,.mp4,application/geo+json,application/json,image/png,video/mp4"
         class="sr-only"
         oncancel={resetTimer}
         onchange={onFileInput}

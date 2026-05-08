@@ -74,18 +74,21 @@
   function handleLoadSample(d: {
     filename: string;
     bounds: Bbox;
-    catalogId: string;
+    catalogId?: string;
     title: string;
     description?: string;
     content: DatasetContent;
+    persist?: boolean;
   }) {
+    const { persist = true, ...datasetFields } = d;
     const next: Dataset = {
       version: 3,
-      ...d,
+      ...datasetFields,
       uploadedAt: new Date().toISOString(),
     };
     const compatible = calibration !== null && bboxEqual(dataset?.bounds, next.bounds);
-    saveDataset(next);
+    if (persist) saveDataset(next);
+    else clearDataset();
     dataset = next;
     if (compatible) {
       step = 5;
