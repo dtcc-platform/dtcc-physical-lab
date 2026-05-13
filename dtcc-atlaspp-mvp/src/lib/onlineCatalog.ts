@@ -158,3 +158,91 @@ export function parseOnlineCatalogResponse(value: unknown): OnlineCatalogResult<
   }
   return { ok: true, value: entries };
 }
+
+export type OnlineFileRecord = { path: string };
+
+function authHeaders(settings: OnlineCatalogSettings): { Authorization: string } {
+  return { Authorization: `Bearer ${settings.token}` };
+}
+
+function responseStatus(response: Response): string {
+  return `${response.status} ${response.statusText}`.trim();
+}
+
+export async function fetchOnlineCatalog(settings: OnlineCatalogSettings): Promise<OnlineCatalogResult<OnlineCatalogEntry[]>> {
+  try {
+    const response = await fetch(fetchOnlineCatalogUrl(settings.baseUrl), { headers: authHeaders(settings) });
+    if (!response.ok) {
+      return { ok: false, error: `online catalog fetch failed (${responseStatus(response)})` };
+    }
+    return parseOnlineCatalogResponse(await response.json());
+  } catch (err) {
+    return { ok: false, error: `online catalog request failed: ${(err as Error).message}` };
+  }
+}
+
+export function parseOnlineVersionDetailResponse(value: unknown): OnlineCatalogResult<OnlineFileRecord[]> {
+  if (!isRecord(value) || !Array.isArray(value.files)) {
+    return { ok: false, error: 'online version detail is missing files' };
+  }
+  const files: OnlineFileRecord[] = [];
+  for (const raw of value.files) {
+    if (!isRecord(raw) || typeof raw.path !== 'string' || raw.path.length === 0) continue;
+    files.push({ path: raw.path });
+  }
+  return { ok: true, value: files };
+}
+
+export async function fetchOnlineVersionDetail(
+  settings: OnlineCatalogSettings,
+  entry: OnlineCatalogEntry
+): Promise<OnlineCatalogResult<OnlineFileRecord[]>> {
+  try {
+    const response = await fetch(fetchOnlineVersionDetailUrl(settings.baseUrl, entry), { headers: authHeaders(settings) });
+    if (!response.ok) {
+      return { ok: false, error: `online version fetch failed (${responseStatus(response)})` };
+    }
+    return parseOnlineVersionDetailResponse(await response.json());
+  } catch (err) {
+    return { ok: false, error: `online catalog request failed: ${(err as Error).message}` };
+  }
+}
+
+export async function fetchOnlineManifestText(
+  settings: OnlineCatalogSettings,
+  entry: OnlineCatalogEntry
+): Promise<OnlineCatalogResult<string>> {
+  try {
+    const response = await fetch(fetchOnlineManifestUrl(settings.baseUrl, entry), { headers: authHeaders(settings) });
+    if (!response.ok) {
+      return { ok: false, error: `online manifest fetch failed (${responseStatus(response)})` };
+    }
+    return { ok: true, value: await response.text() };
+  } catch (err) {
+    return { ok: false, error: `online catalog request failed: ${(err as Error).message}` };
+  }
+}
+
+export function findOnlineArtifactPath(files: OnlineFileRecord[], manifestFile: string): OnlineCatalogResult<string> {
+  const match = files.find((file) => file.path === manifestFile);
+  if (!match) {
+    return { ok: false, error: `manifest references ${manifestFile}; online version does not include it` };
+  }
+  return { ok: true, value: match.path };
+}
+
+export async function fetchOnlineArtifactBlob(
+  settings: OnlineCatalogSettings,
+  entry: OnlineCatalogEntry,
+  path: string
+): Promise<OnlineCatalogResult<Blob>> {
+  try {
+    const response = await fetch(fetchOnlineArtifactUrl(settings.baseUrl, entry, path), { headers: authHeaders(settings) });
+    if (!response.ok) {
+      return { ok: false, error: `online artifact fetch failed (${responseStatus(response)})` };
+    }
+    return { ok: true, value: await response.blob() };
+  } catch (err) {
+    return { ok: false, error: `online catalog request failed: ${(err as Error).message}` };
+  }
+}

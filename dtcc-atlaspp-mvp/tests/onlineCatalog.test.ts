@@ -1,13 +1,19 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearOnlineCatalogSettings,
+  fetchOnlineArtifactBlob,
   fetchOnlineArtifactUrl,
+  fetchOnlineCatalog,
   fetchOnlineCatalogUrl,
+  fetchOnlineManifestText,
   fetchOnlineManifestUrl,
+  fetchOnlineVersionDetail,
   fetchOnlineVersionDetailUrl,
+  findOnlineArtifactPath,
   loadOnlineCatalogSettings,
   normalizeOnlineBaseUrl,
   parseOnlineCatalogResponse,
+  parseOnlineVersionDetailResponse,
   saveOnlineCatalogSettings,
   type OnlineCatalogEntry,
 } from '../src/lib/onlineCatalog';
@@ -185,5 +191,114 @@ describe('parseOnlineCatalogResponse', () => {
       ok: false,
       error: 'online catalog response is invalid',
     });
+  });
+});
+
+describe('online catalog network helpers', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('sends bearer auth and parses the online catalog list', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            items: [{ ...baseRow, format: 'geojson', media_type: 'application/geo+json', data_kind: 'vector' }],
+            next_cursor: null,
+          })
+        )
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchOnlineCatalog({ baseUrl: 'http://127.0.0.1:8000', token: 'browser-token' });
+
+    expect(result.ok).toBe(true);
+    const [calledUrl, calledInit] = fetchMock.mock.calls[0];
+    expect((calledUrl as URL).href).toBe('http://127.0.0.1:8000/v1/datasets?limit=100');
+    expect(calledInit).toEqual({ headers: { Authorization: 'Bearer browser-token' } });
+  });
+
+  it('returns useful errors for non-OK responses', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 401, statusText: 'Unauthorized' })));
+
+    await expect(fetchOnlineCatalog({ baseUrl: 'http://127.0.0.1:8000', token: 'bad' })).resolves.toEqual({
+      ok: false,
+      error: 'online catalog fetch failed (401 Unauthorized)',
+    });
+  });
+
+  it('omits the status text spacing when the browser response has no statusText', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 401, statusText: '' })));
+
+    await expect(fetchOnlineCatalog({ baseUrl: 'http://127.0.0.1:8000', token: 'bad' })).resolves.toEqual({
+      ok: false,
+      error: 'online catalog fetch failed (401)',
+    });
+  });
+
+  it('prefixes network failures with an online catalog message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      })
+    );
+
+    await expect(fetchOnlineCatalog({ baseUrl: 'http://127.0.0.1:8000', token: 'bad' })).resolves.toEqual({
+      ok: false,
+      error: 'online catalog request failed: Failed to fetch',
+    });
+  });
+
+  it('parses version detail file records', () => {
+    const result = parseOnlineVersionDetailResponse({
+      version: {},
+      files: [{ path: 'media/smoke.geojson' }],
+    });
+
+    expect(result).toEqual({ ok: true, value: [{ path: 'media/smoke.geojson' }] });
+  });
+
+  it('returns manifest/detail mismatch when the referenced artifact is absent', () => {
+    expect(findOnlineArtifactPath([{ path: 'other.geojson' }], 'media/smoke.geojson')).toEqual({
+      ok: false,
+      error: 'manifest references media/smoke.geojson; online version does not include it',
+    });
+  });
+
+  it('fetches manifest text with bearer auth', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response('{"file":"media/smoke.geojson"}'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      fetchOnlineManifestText({ baseUrl: 'http://127.0.0.1:8000', token: 'browser-token' }, entry)
+    ).resolves.toEqual({
+      ok: true,
+      value: '{"file":"media/smoke.geojson"}',
+    });
+
+    const [calledUrl, calledInit] = fetchMock.mock.calls[0];
+    expect((calledUrl as URL).href).toBe('http://127.0.0.1:8000/v1/datasets/smoke%2Fslice/versions/v%201/manifest');
+    expect(calledInit).toEqual({ headers: { Authorization: 'Bearer browser-token' } });
+  });
+
+  it('fetches artifact blobs with bearer auth', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(new Blob(['{}'], { type: 'application/geo+json' })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const blobResult = await fetchOnlineArtifactBlob(
+      { baseUrl: 'http://127.0.0.1:8000', token: 'browser-token' },
+      entry,
+      'media/smoke.geojson'
+    );
+
+    expect(blobResult.ok).toBe(true);
+    const [calledUrl, calledInit] = fetchMock.mock.calls[0];
+    expect((calledUrl as URL).href).toBe(
+      'http://127.0.0.1:8000/v1/datasets/smoke%2Fslice/versions/v%201/files/media/smoke.geojson'
+    );
+    expect(calledInit).toEqual({ headers: { Authorization: 'Bearer browser-token' } });
   });
 });
