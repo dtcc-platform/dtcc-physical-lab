@@ -3,12 +3,25 @@
   import {
     findManifestArtifact,
     isDtccManifestFile,
+    parseDtccManifestText,
     resolveDtccManifestFolder,
     resolveDtccManifestFiles,
     type DtccManifest,
     type DtccManifestFileSelection,
   } from './dtccManifest';
   import { validateGeoJSON, defaultStyle, featureCollectionBbox, type FeatureCollection } from './geojson';
+  import {
+    clearOnlineCatalogSettings,
+    fetchOnlineArtifactBlob,
+    fetchOnlineCatalog,
+    fetchOnlineManifestText,
+    fetchOnlineVersionDetail,
+    findOnlineArtifactPath,
+    loadOnlineCatalogSettings,
+    normalizeOnlineBaseUrl,
+    saveOnlineCatalogSettings,
+    type OnlineCatalogEntry,
+  } from './onlineCatalog';
   import type { Bbox, Dataset, DatasetContent } from './storage';
 
   let {
@@ -54,6 +67,14 @@
   let pendingManifest = $state<DtccManifest | null>(null);
   let folderManifestSelections = $state<DtccManifestFileSelection[]>([]);
   let selectedFolderManifestId = $state('');
+  let onlineBaseUrl = $state('');
+  let onlineToken = $state('');
+  let onlineEntries = $state<OnlineCatalogEntry[]>([]);
+  let selectedOnlineId = $state('');
+  let onlineListLoading = $state(false);
+  let onlineDatasetLoading = $state(false);
+  let onlineListGeneration = 0;
+  let onlineDatasetGeneration = 0;
   let localObjectUrl: string | null = null;
 
   type PanelPosition = { x: number; y: number };
@@ -204,6 +225,9 @@
   const activeCatalogEntry = $derived(
     catalogEntries.find((entry) => entry.id === dataset?.catalogId) ?? null
   );
+  const selectedOnlineEntry = $derived(
+    onlineEntries.find((entry) => entry.id === selectedOnlineId) ?? null
+  );
   const selectedCatalogId = $derived(activeCatalogEntry?.id ?? '');
   const colorValue = $derived(dataset?.content.kind === 'geojson' ? dataset.content.style.color : '#38bdf8');
 
@@ -262,6 +286,12 @@
     };
   });
 
+  $effect(() => {
+    const saved = loadOnlineCatalogSettings();
+    onlineBaseUrl = saved.baseUrl;
+    onlineToken = saved.token;
+  });
+
   function datasetUrl(file: string): string {
     return `/datasets/${file}`;
   }
@@ -313,6 +343,12 @@
     selectedFolderManifestId = '';
   }
 
+  function clearOnlineDatasetSelection() {
+    selectedOnlineId = '';
+    onlineDatasetGeneration++;
+    onlineDatasetLoading = false;
+  }
+
   function folderManifestId(selection: DtccManifestFileSelection, index: number): string {
     return selection.manifestPath ?? `${selection.manifest.title}-${index}`;
   }
@@ -326,6 +362,186 @@
     await loadManifestArtifact(selection.manifest, selection.artifact);
   }
 
+  async function handleOnlineFetch() {
+    error = null;
+    pendingManifest = null;
+    clearFolderManifestSelections();
+
+    const normalized = normalizeOnlineBaseUrl(onlineBaseUrl);
+    if (!normalized.ok) {
+      error = normalized.error;
+      return;
+    }
+    const token = onlineToken.trim();
+    if (token.length === 0) {
+      error = 'enter online catalog URL and browse token';
+      return;
+    }
+
+    onlineBaseUrl = normalized.value;
+    onlineToken = token;
+    saveOnlineCatalogSettings({ baseUrl: normalized.value, token });
+
+    const generation = ++onlineListGeneration;
+    onlineListLoading = true;
+    selectedOnlineId = '';
+    onlineDatasetGeneration++;
+    onlineDatasetLoading = false;
+    try {
+      const result = await fetchOnlineCatalog({ baseUrl: normalized.value, token });
+      if (generation !== onlineListGeneration) return;
+      if (!result.ok) {
+        onlineEntries = [];
+        error = result.error;
+        return;
+      }
+      onlineEntries = result.value;
+    } finally {
+      if (generation === onlineListGeneration) {
+        onlineListLoading = false;
+        resetTimer();
+      }
+    }
+  }
+
+  function handleOnlineClear() {
+    error = null;
+    onlineBaseUrl = '';
+    onlineToken = '';
+    onlineEntries = [];
+    selectedOnlineId = '';
+    onlineListLoading = false;
+    onlineDatasetLoading = false;
+    onlineListGeneration++;
+    onlineDatasetGeneration++;
+    clearOnlineCatalogSettings();
+    resetTimer();
+  }
+
+  async function loadOnlineDataset(entry: OnlineCatalogEntry, generation: number) {
+    const settings = { baseUrl: onlineBaseUrl, token: onlineToken };
+
+    const detail = await fetchOnlineVersionDetail(settings, entry);
+    if (generation !== onlineDatasetGeneration) return;
+    if (!detail.ok) {
+      error = detail.error;
+      return;
+    }
+
+    const manifestText = await fetchOnlineManifestText(settings, entry);
+    if (generation !== onlineDatasetGeneration) return;
+    if (!manifestText.ok) {
+      error = manifestText.error;
+      return;
+    }
+
+    const manifest = parseDtccManifestText('online manifest', manifestText.value);
+    if (!manifest.ok) {
+      error = manifest.error;
+      return;
+    }
+
+    const artifactPath = findOnlineArtifactPath(detail.value, manifest.value.file);
+    if (!artifactPath.ok) {
+      error = artifactPath.error;
+      return;
+    }
+
+    const artifact = await fetchOnlineArtifactBlob(settings, entry, artifactPath.value);
+    if (generation !== onlineDatasetGeneration) return;
+    if (!artifact.ok) {
+      error = artifact.error;
+      return;
+    }
+
+    if (manifest.value.kind === 'geojson') {
+      const result = validateGeoJSON(await artifact.value.text());
+      if (generation !== onlineDatasetGeneration) return;
+      if (!result.ok) {
+        error = result.error;
+        return;
+      }
+      revokeLocalObjectUrl();
+      onLoadSample({
+        filename: manifest.value.artifactName,
+        bounds: manifest.value.bounds,
+        title: manifest.value.title,
+        ...(manifest.value.description !== undefined ? { description: manifest.value.description } : {}),
+        content: { kind: 'geojson', geojson: result.value, style: defaultStyle() },
+      });
+      return;
+    }
+
+    const src = URL.createObjectURL(artifact.value);
+    if (manifest.value.kind === 'image') {
+      try {
+        await loadImage(src);
+      } catch (err) {
+        URL.revokeObjectURL(src);
+        throw err;
+      }
+      if (generation !== onlineDatasetGeneration) {
+        URL.revokeObjectURL(src);
+        return;
+      }
+      rememberLocalObjectUrl(src);
+      onLoadSample({
+        filename: manifest.value.artifactName,
+        bounds: manifest.value.bounds,
+        title: manifest.value.title,
+        ...(manifest.value.description !== undefined ? { description: manifest.value.description } : {}),
+        content: { kind: 'image', src, mediaType: 'image/png' },
+        persist: false,
+      });
+      return;
+    }
+
+    try {
+      await loadVideo(src);
+    } catch (err) {
+      URL.revokeObjectURL(src);
+      throw err;
+    }
+    if (generation !== onlineDatasetGeneration) {
+      URL.revokeObjectURL(src);
+      return;
+    }
+    rememberLocalObjectUrl(src);
+    onLoadSample({
+      filename: manifest.value.artifactName,
+      bounds: manifest.value.bounds,
+      title: manifest.value.title,
+      ...(manifest.value.description !== undefined ? { description: manifest.value.description } : {}),
+      content: { kind: 'video', src, mediaType: 'video/mp4', muted: true, autoplay: true, loop: true },
+      persist: false,
+    });
+  }
+
+  async function handleOnlineDatasetChange(e: Event) {
+    const id = (e.currentTarget as HTMLSelectElement).value;
+    const entry = onlineEntries.find((candidate) => candidate.id === id);
+    if (!entry) return;
+
+    selectedOnlineId = id;
+    error = null;
+    pendingManifest = null;
+    clearFolderManifestSelections();
+    onlineDatasetLoading = true;
+    const generation = ++onlineDatasetGeneration;
+    try {
+      await loadOnlineDataset(entry, generation);
+    } catch (err) {
+      if (generation === onlineDatasetGeneration) {
+        error = (err as Error).message;
+      }
+    } finally {
+      if (generation === onlineDatasetGeneration) {
+        onlineDatasetLoading = false;
+        resetTimer();
+      }
+    }
+  }
+
   async function handleSampleChange(e: Event) {
     const id = (e.currentTarget as HTMLSelectElement).value;
     const entry = catalogEntries.find((candidate) => candidate.id === id);
@@ -334,6 +550,7 @@
     error = null;
     pendingManifest = null;
     clearFolderManifestSelections();
+    clearOnlineDatasetSelection();
     sampleLoading = true;
     try {
       const src = datasetUrl(entry.file);
@@ -405,6 +622,7 @@
       return;
     }
     clearFolderManifestSelections();
+    clearOnlineDatasetSelection();
     revokeLocalObjectUrl();
     onLoadDataset({
       filename: file.name,
@@ -416,6 +634,7 @@
 
   async function loadManifestArtifact(manifest: DtccManifest, artifact: File) {
     pendingManifest = null;
+    clearOnlineDatasetSelection();
 
     if (manifest.kind === 'geojson') {
       if (artifact.size > 10 * 1024 * 1024) {
@@ -573,6 +792,7 @@
     error = null;
     pendingManifest = null;
     clearFolderManifestSelections();
+    clearOnlineDatasetSelection();
     revokeLocalObjectUrl();
     onClearDataset();
   }
@@ -653,6 +873,69 @@
         {/if}
       </div>
     {/if}
+
+    <div class="mb-3 border-t border-dtcc-border pt-3">
+      <div class="text-xs font-medium mb-2">Online catalog</div>
+      <label class="block text-xs text-dtcc-muted mb-1" for="online-catalog-url">Catalog URL</label>
+      <input
+        id="online-catalog-url"
+        class="w-full text-xs rounded border border-dtcc-border bg-white px-2 py-1 mb-2"
+        type="url"
+        autocomplete="off"
+        value={onlineBaseUrl}
+        oninput={(e) => (onlineBaseUrl = (e.currentTarget as HTMLInputElement).value)}
+      />
+      <label class="block text-xs text-dtcc-muted mb-1" for="online-catalog-token">Browse token</label>
+      <input
+        id="online-catalog-token"
+        class="w-full text-xs rounded border border-dtcc-border bg-white px-2 py-1 mb-2"
+        type="password"
+        autocomplete="off"
+        value={onlineToken}
+        oninput={(e) => (onlineToken = (e.currentTarget as HTMLInputElement).value)}
+      />
+      <div class="flex gap-2">
+        <button
+          type="button"
+          class="px-3 py-1 text-xs rounded bg-dtcc-gray-light disabled:opacity-40"
+          disabled={onlineListLoading}
+          onclick={handleOnlineFetch}
+        >
+          {onlineListLoading ? 'Fetching...' : 'Fetch'}
+        </button>
+        <button
+          type="button"
+          class="px-3 py-1 text-xs rounded bg-dtcc-gray-light"
+          onclick={handleOnlineClear}
+        >
+          Clear
+        </button>
+      </div>
+      {#if onlineEntries.length > 0}
+        <label class="block text-xs font-medium mb-1 mt-2" for="online-dataset">Online dataset</label>
+        <select
+          id="online-dataset"
+          class="w-full text-xs rounded border border-dtcc-border bg-white px-2 py-1 disabled:opacity-60"
+          value={selectedOnlineId}
+          disabled={onlineDatasetLoading}
+          onchange={handleOnlineDatasetChange}
+        >
+          <option value="" disabled>{onlineDatasetLoading ? 'Loading...' : 'Select online dataset...'}</option>
+          {#each onlineEntries as entry}
+            <option value={entry.id}>{entry.title} ({entry.format.toUpperCase()})</option>
+          {/each}
+        </select>
+        {#if onlineDatasetLoading}
+          <p class="text-xs text-dtcc-muted mt-1">Loading...</p>
+        {:else if selectedOnlineEntry}
+          <p class="text-xs text-dtcc-muted mt-1">
+            {selectedOnlineEntry.format.toUpperCase()}
+            {selectedOnlineEntry.totalBytes ? ` - ${selectedOnlineEntry.totalBytes} bytes` : ''}
+            {selectedOnlineEntry.fileCount ? ` - ${selectedOnlineEntry.fileCount} file${selectedOnlineEntry.fileCount === 1 ? '' : 's'}` : ''}
+          </p>
+        {/if}
+      {/if}
+    </div>
 
     {#if folderManifestSelections.length > 1}
       <div class="mb-3">

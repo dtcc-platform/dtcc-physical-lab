@@ -201,7 +201,7 @@ describe('online catalog network helpers', () => {
   });
 
   it('sends bearer auth and parses the online catalog list', async () => {
-    const fetchMock = vi.fn(
+    const fetchMock = vi.fn<typeof fetch>(
       async () =>
         new Response(
           JSON.stringify({
@@ -261,6 +261,19 @@ describe('online catalog network helpers', () => {
     expect(result).toEqual({ ok: true, value: [{ path: 'media/smoke.geojson' }] });
   });
 
+  it('fetches version detail with bearer auth', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ version: {}, files: [] })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      fetchOnlineVersionDetail({ baseUrl: 'http://127.0.0.1:8000', token: 'browser-token' }, entry)
+    ).resolves.toEqual({ ok: true, value: [] });
+
+    const [calledUrl, calledInit] = fetchMock.mock.calls[0];
+    expect((calledUrl as URL).href).toBe('http://127.0.0.1:8000/v1/datasets/smoke%2Fslice/versions/v%201');
+    expect(calledInit).toEqual({ headers: { Authorization: 'Bearer browser-token' } });
+  });
+
   it('returns manifest/detail mismatch when the referenced artifact is absent', () => {
     expect(findOnlineArtifactPath([{ path: 'other.geojson' }], 'media/smoke.geojson')).toEqual({
       ok: false,
@@ -269,7 +282,7 @@ describe('online catalog network helpers', () => {
   });
 
   it('fetches manifest text with bearer auth', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(new Response('{"file":"media/smoke.geojson"}'));
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response('{"file":"media/smoke.geojson"}'));
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
@@ -285,7 +298,9 @@ describe('online catalog network helpers', () => {
   });
 
   it('fetches artifact blobs with bearer auth', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(new Blob(['{}'], { type: 'application/geo+json' })));
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => new Response(new Blob(['{}'], { type: 'application/geo+json' }))
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const blobResult = await fetchOnlineArtifactBlob(
