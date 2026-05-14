@@ -39,11 +39,11 @@ function isBbox(value: unknown): value is Bbox {
 
 function isSafeRelativeFile(file: string): boolean {
   if (file.length === 0) return false;
+  if (file.includes('\\')) return false;
   if (file.startsWith('/')) return false;
+  if (/^[A-Za-z]:/.test(file)) return false;
   if (file.includes('://')) return false;
-  if (file.startsWith('../')) return false;
-  if (file.includes('/../')) return false;
-  return true;
+  return !file.split('/').some((part) => part.length === 0 || part === '..');
 }
 
 function basename(file: string): string {

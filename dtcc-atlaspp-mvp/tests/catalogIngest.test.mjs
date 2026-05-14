@@ -246,4 +246,24 @@ describe('ingestManifests', () => {
 
     await expect(ingestManifests({ sourceDir, datasetsDir, catalogPath })).rejects.toThrow(/bounds/);
   });
+
+  it('rejects Windows-style traversal before resolving the artifact path', async () => {
+    const root = makeTempRoot();
+    const sourceDir = join(root, 'exports');
+    const datasetsDir = join(root, 'public', 'datasets');
+    const catalogPath = join(datasetsDir, 'catalog.json');
+    mkdirSync(sourceDir, { recursive: true });
+    mkdirSync(datasetsDir, { recursive: true });
+    writeJson(catalogPath, { version: 1, entries: [] });
+    writeJson(join(sourceDir, 'smoke.manifest.json'), {
+      title: 'Smoke PNG',
+      file: '..\\secret.png',
+      format: 'png',
+      media_type: 'image/png',
+      data_kind: 'raster',
+      bounds: [319720, 6397660, 320220, 6398160],
+    });
+
+    await expect(ingestManifests({ sourceDir, datasetsDir, catalogPath })).rejects.toThrow(/file must be relative/);
+  });
 });

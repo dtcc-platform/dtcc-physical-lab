@@ -96,6 +96,18 @@ describe('parseCatalog', () => {
     if (!result.ok) expect(result.error).toMatch(/relative/i);
   });
 
+  it('rejects Windows-style traversal files', () => {
+    const result = parseCatalog({ version: 1, entries: [{ ...legacyGeojsonEntry, file: '..\\fixtures\\a.geojson' }] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/relative/i);
+  });
+
+  it('rejects Windows drive path files', () => {
+    const result = parseCatalog({ version: 1, entries: [{ ...legacyGeojsonEntry, file: 'C:\\Users\\victim\\a.geojson' }] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/relative/i);
+  });
+
   it('rejects malformed bounds values', () => {
     const result = parseCatalog({ version: 1, entries: [{ ...legacyGeojsonEntry, bounds: [1, 2, 3] }] });
     expect(result.ok).toBe(false);

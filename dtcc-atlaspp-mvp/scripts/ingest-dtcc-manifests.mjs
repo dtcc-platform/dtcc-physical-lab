@@ -2,7 +2,7 @@
 
 import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 function isRecord(value) {
@@ -15,11 +15,16 @@ function isBounds(value) {
 
 function isSafeRelativeFile(file) {
   if (file.length === 0) return false;
-  if (file.startsWith('/')) return false;
+  if (file.includes('\\')) return false;
+  if (isAbsolute(file)) return false;
+  if (/^[A-Za-z]:/.test(file)) return false;
   if (file.includes('://')) return false;
-  if (file.startsWith('../')) return false;
-  if (file.includes('/../')) return false;
-  return true;
+  return !file.split('/').some((part) => part.length === 0 || part === '..');
+}
+
+function isInsidePath(root, path) {
+  const rel = relative(root, path);
+  return rel.length > 0 && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
 function slugify(value) {
@@ -135,7 +140,11 @@ function parseManifest(manifestPath, manifest, datasetsDir) {
   const id = typeof manifest.id === 'string' && manifest.id.trim().length > 0 ? manifest.id.trim() : slugify(fileName);
   if (id.length === 0) throw new Error(`${manifestPath} must provide an id or sluggable file name`);
 
-  const sourceFile = resolve(dirname(manifestPath), manifest.file);
+  const manifestDir = resolve(dirname(manifestPath));
+  const sourceFile = resolve(manifestDir, manifest.file);
+  if (!isInsidePath(manifestDir, sourceFile)) {
+    throw new Error(`${manifestPath} file must resolve inside the manifest directory`);
+  }
   const targetFile = resolve(datasetsDir, fileName);
   if (!existsSync(sourceFile)) throw new Error(`${manifestPath} references missing file ${manifest.file}`);
 

@@ -77,6 +77,7 @@
   let onlineDatasetGeneration = 0;
   let localObjectUrl: string | null = null;
 
+  type DatasetSource = 'fetch' | 'local' | 'samples';
   type PanelPosition = { x: number; y: number };
   type PanelDrag = {
     pointerId: number;
@@ -91,6 +92,7 @@
   let panelEl = $state<HTMLElement | null>(null);
   let position = $state<PanelPosition | null>(null);
   let panelDrag = $state<PanelDrag | null>(null);
+  let activeDatasetSource = $state<DatasetSource>('fetch');
   const panelStyle = $derived(position ? `left: ${position.x}px; top: ${position.y}px;` : undefined);
 
   function clearHideTimer() {
@@ -220,6 +222,11 @@
     clearHideTimer();
     if (!autoHide) return;
     hideTimer = window.setTimeout(() => (visible = false), 5000);
+  }
+
+  function setDatasetSource(source: DatasetSource) {
+    activeDatasetSource = source;
+    pauseAutoHide();
   }
 
   const activeCatalogEntry = $derived(
@@ -806,6 +813,7 @@
 
   function onDragOver(e: DragEvent) {
     e.preventDefault();
+    activeDatasetSource = 'local';
     dragging = true;
   }
 
@@ -836,6 +844,9 @@
     class="fixed {position === null ? 'bottom-4 right-4' : ''} w-80 bg-white/95 text-dtcc-dark rounded-lg shadow-xl p-4 pointer-events-auto z-50"
     style={panelStyle}
     aria-label="DTCC Atlas++ controls"
+    ondragover={onDragOver}
+    ondragleave={onDragLeave}
+    ondrop={onDrop}
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <header
@@ -851,8 +862,197 @@
       {/if}
     </header>
 
-    {#if catalogEntries.length > 0}
-      <div class="mb-3">
+    <div class="mb-3 border-t border-dtcc-border pt-3">
+      <div class="flex gap-1 rounded bg-dtcc-gray-light p-1" role="tablist" aria-label="Dataset source">
+        <button
+          id="dataset-source-fetch-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeDatasetSource === 'fetch'}
+          aria-controls="dataset-source-fetch"
+          class="flex-1 rounded px-2 py-1 text-xs font-medium {activeDatasetSource === 'fetch' ? 'bg-dtcc-muted text-white' : 'text-dtcc-dark'}"
+          onclick={() => setDatasetSource('fetch')}
+        >
+          Fetch
+        </button>
+        <button
+          id="dataset-source-local-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeDatasetSource === 'local'}
+          aria-controls="dataset-source-local"
+          class="flex-1 rounded px-2 py-1 text-xs font-medium {activeDatasetSource === 'local' ? 'bg-dtcc-muted text-white' : 'text-dtcc-dark'}"
+          onclick={() => setDatasetSource('local')}
+        >
+          Local
+        </button>
+        <button
+          id="dataset-source-samples-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeDatasetSource === 'samples'}
+          aria-controls="dataset-source-samples"
+          aria-disabled={catalogEntries.length === 0}
+          disabled={catalogEntries.length === 0}
+          class="flex-1 rounded px-2 py-1 text-xs font-medium disabled:opacity-40 {activeDatasetSource === 'samples' ? 'bg-dtcc-muted text-white' : 'text-dtcc-dark'}"
+          onclick={() => setDatasetSource('samples')}
+        >
+          Samples
+        </button>
+      </div>
+    </div>
+
+    {#if activeDatasetSource === 'fetch'}
+      <div
+        id="dataset-source-fetch"
+        role="tabpanel"
+        aria-labelledby="dataset-source-fetch-tab"
+        class="mb-3"
+      >
+        <div class="text-xs font-medium mb-2">Online catalog</div>
+        <label class="block text-xs text-dtcc-muted mb-1" for="online-catalog-url">Catalog URL</label>
+        <input
+          id="online-catalog-url"
+          class="w-full text-xs rounded border border-dtcc-border bg-white px-2 py-1 mb-2"
+          type="url"
+          autocomplete="off"
+          value={onlineBaseUrl}
+          oninput={(e) => (onlineBaseUrl = (e.currentTarget as HTMLInputElement).value)}
+        />
+        <label class="block text-xs text-dtcc-muted mb-1" for="online-catalog-token">Browse token</label>
+        <input
+          id="online-catalog-token"
+          class="w-full text-xs rounded border border-dtcc-border bg-white px-2 py-1 mb-2"
+          type="password"
+          autocomplete="off"
+          value={onlineToken}
+          oninput={(e) => (onlineToken = (e.currentTarget as HTMLInputElement).value)}
+        />
+        <div class="flex gap-2">
+          <button
+            type="button"
+            class="px-3 py-1 text-xs rounded bg-dtcc-gray-light disabled:opacity-40"
+            disabled={onlineListLoading}
+            onclick={handleOnlineFetch}
+          >
+            {onlineListLoading ? 'Fetching...' : 'Fetch'}
+          </button>
+          <button
+            type="button"
+            class="px-3 py-1 text-xs rounded bg-dtcc-gray-light"
+            onclick={handleOnlineClear}
+          >
+            Clear
+          </button>
+        </div>
+        {#if onlineEntries.length > 0}
+          <label class="block text-xs font-medium mb-1 mt-2" for="online-dataset">Online dataset</label>
+          <select
+            id="online-dataset"
+            class="w-full text-xs rounded border border-dtcc-border bg-white px-2 py-1 disabled:opacity-60"
+            value={selectedOnlineId}
+            disabled={onlineDatasetLoading}
+            onchange={handleOnlineDatasetChange}
+          >
+            <option value="" disabled>{onlineDatasetLoading ? 'Loading...' : 'Select online dataset...'}</option>
+            {#each onlineEntries as entry}
+              <option value={entry.id}>{entry.title} ({entry.format.toUpperCase()})</option>
+            {/each}
+          </select>
+          {#if onlineDatasetLoading}
+            <p class="text-xs text-dtcc-muted mt-1">Loading...</p>
+          {:else if selectedOnlineEntry}
+            <p class="text-xs text-dtcc-muted mt-1">
+              {selectedOnlineEntry.format.toUpperCase()}
+              {selectedOnlineEntry.totalBytes ? ` - ${selectedOnlineEntry.totalBytes} bytes` : ''}
+              {selectedOnlineEntry.fileCount ? ` - ${selectedOnlineEntry.fileCount} file${selectedOnlineEntry.fileCount === 1 ? '' : 's'}` : ''}
+            </p>
+          {/if}
+        {/if}
+      </div>
+    {:else if activeDatasetSource === 'local'}
+      <div
+        id="dataset-source-local"
+        role="tabpanel"
+        aria-labelledby="dataset-source-local-tab"
+        class="mb-3"
+      >
+        {#if folderManifestSelections.length > 1}
+          <div class="mb-3">
+            <label class="block text-xs font-medium mb-1" for="folder-manifest">Folder manifest</label>
+            <select
+              id="folder-manifest"
+              class="w-full text-xs rounded border border-dtcc-border bg-white px-2 py-1"
+              value={selectedFolderManifestId}
+              onchange={handleFolderManifestChange}
+            >
+              <option value="" disabled>Select a manifest...</option>
+              {#each folderManifestSelections as selection, i}
+                <option value={folderManifestId(selection, i)}>
+                  {selection.manifest.title} ({selection.manifest.format.toUpperCase()})
+                </option>
+              {/each}
+            </select>
+          </div>
+        {/if}
+
+        <div
+          role="region"
+          aria-label="Dataset drop zone"
+          class="border-2 border-dashed rounded p-4 text-center text-sm transition-colors {dragging ? 'border-dtcc-orange bg-dtcc-orange/10' : 'border-dtcc-border'}"
+        >
+          {#if pendingManifest}
+            <div class="font-medium truncate">Pick {pendingManifest.artifactName}</div>
+            <div class="text-xs text-dtcc-muted mt-1">Referenced by {pendingManifest.title}</div>
+          {:else if dataset}
+            <div class="font-medium truncate">{dataset.filename}</div>
+            <div class="text-xs text-dtcc-muted mt-1">Drop a new file to replace</div>
+          {:else}
+            <div class="font-medium">Drop a .geojson or dtcc manifest here</div>
+          {/if}
+          <button
+            type="button"
+            class="text-xs text-dtcc-orange cursor-pointer underline mt-1 inline-block focus:outline-none focus:ring-2 focus:ring-dtcc-orange rounded"
+            onclick={openFilePicker}
+          >
+            {pendingManifest ? `or pick ${pendingManifest.artifactName}` : dataset ? 'or pick different files' : 'or pick files'}
+          </button>
+          <button
+            type="button"
+            class="text-xs text-dtcc-orange cursor-pointer underline mt-1 ml-2 inline-block focus:outline-none focus:ring-2 focus:ring-dtcc-orange rounded"
+            onclick={openFolderPicker}
+          >
+            pick a folder
+          </button>
+          <input
+            bind:this={fileInput}
+            type="file"
+            multiple
+            accept=".geojson,.json,.manifest.json,application/geo+json,application/json"
+            aria-label="Dataset files"
+            class="sr-only"
+            oncancel={resetTimer}
+            onchange={onFileInput}
+          />
+          <input
+            bind:this={folderInput}
+            type="file"
+            multiple
+            webkitdirectory
+            aria-label="Dataset folder"
+            class="sr-only"
+            oncancel={resetTimer}
+            onchange={onFolderInput}
+          />
+        </div>
+      </div>
+    {:else if activeDatasetSource === 'samples' && catalogEntries.length > 0}
+      <div
+        id="dataset-source-samples"
+        role="tabpanel"
+        aria-labelledby="dataset-source-samples-tab"
+        class="mb-3"
+      >
         <label class="block text-xs font-medium mb-1" for="sample-dataset">Sample dataset</label>
         <select
           id="sample-dataset"
@@ -873,141 +1073,6 @@
         {/if}
       </div>
     {/if}
-
-    <div class="mb-3 border-t border-dtcc-border pt-3">
-      <div class="text-xs font-medium mb-2">Online catalog</div>
-      <label class="block text-xs text-dtcc-muted mb-1" for="online-catalog-url">Catalog URL</label>
-      <input
-        id="online-catalog-url"
-        class="w-full text-xs rounded border border-dtcc-border bg-white px-2 py-1 mb-2"
-        type="url"
-        autocomplete="off"
-        value={onlineBaseUrl}
-        oninput={(e) => (onlineBaseUrl = (e.currentTarget as HTMLInputElement).value)}
-      />
-      <label class="block text-xs text-dtcc-muted mb-1" for="online-catalog-token">Browse token</label>
-      <input
-        id="online-catalog-token"
-        class="w-full text-xs rounded border border-dtcc-border bg-white px-2 py-1 mb-2"
-        type="password"
-        autocomplete="off"
-        value={onlineToken}
-        oninput={(e) => (onlineToken = (e.currentTarget as HTMLInputElement).value)}
-      />
-      <div class="flex gap-2">
-        <button
-          type="button"
-          class="px-3 py-1 text-xs rounded bg-dtcc-gray-light disabled:opacity-40"
-          disabled={onlineListLoading}
-          onclick={handleOnlineFetch}
-        >
-          {onlineListLoading ? 'Fetching...' : 'Fetch'}
-        </button>
-        <button
-          type="button"
-          class="px-3 py-1 text-xs rounded bg-dtcc-gray-light"
-          onclick={handleOnlineClear}
-        >
-          Clear
-        </button>
-      </div>
-      {#if onlineEntries.length > 0}
-        <label class="block text-xs font-medium mb-1 mt-2" for="online-dataset">Online dataset</label>
-        <select
-          id="online-dataset"
-          class="w-full text-xs rounded border border-dtcc-border bg-white px-2 py-1 disabled:opacity-60"
-          value={selectedOnlineId}
-          disabled={onlineDatasetLoading}
-          onchange={handleOnlineDatasetChange}
-        >
-          <option value="" disabled>{onlineDatasetLoading ? 'Loading...' : 'Select online dataset...'}</option>
-          {#each onlineEntries as entry}
-            <option value={entry.id}>{entry.title} ({entry.format.toUpperCase()})</option>
-          {/each}
-        </select>
-        {#if onlineDatasetLoading}
-          <p class="text-xs text-dtcc-muted mt-1">Loading...</p>
-        {:else if selectedOnlineEntry}
-          <p class="text-xs text-dtcc-muted mt-1">
-            {selectedOnlineEntry.format.toUpperCase()}
-            {selectedOnlineEntry.totalBytes ? ` - ${selectedOnlineEntry.totalBytes} bytes` : ''}
-            {selectedOnlineEntry.fileCount ? ` - ${selectedOnlineEntry.fileCount} file${selectedOnlineEntry.fileCount === 1 ? '' : 's'}` : ''}
-          </p>
-        {/if}
-      {/if}
-    </div>
-
-    {#if folderManifestSelections.length > 1}
-      <div class="mb-3">
-        <label class="block text-xs font-medium mb-1" for="folder-manifest">Folder manifest</label>
-        <select
-          id="folder-manifest"
-          class="w-full text-xs rounded border border-dtcc-border bg-white px-2 py-1"
-          value={selectedFolderManifestId}
-          onchange={handleFolderManifestChange}
-        >
-          <option value="" disabled>Select a manifest...</option>
-          {#each folderManifestSelections as selection, i}
-            <option value={folderManifestId(selection, i)}>
-              {selection.manifest.title} ({selection.manifest.format.toUpperCase()})
-            </option>
-          {/each}
-        </select>
-      </div>
-    {/if}
-
-    <div
-      role="region"
-      aria-label="Dataset drop zone"
-      class="border-2 border-dashed rounded p-4 text-center text-sm transition-colors {dragging ? 'border-dtcc-orange bg-dtcc-orange/10' : 'border-dtcc-border'}"
-      ondragover={onDragOver}
-      ondragleave={onDragLeave}
-      ondrop={onDrop}
-    >
-      {#if pendingManifest}
-        <div class="font-medium truncate">Pick {pendingManifest.artifactName}</div>
-        <div class="text-xs text-dtcc-muted mt-1">Referenced by {pendingManifest.title}</div>
-      {:else if dataset}
-        <div class="font-medium truncate">{dataset.filename}</div>
-        <div class="text-xs text-dtcc-muted mt-1">Drop a new file to replace</div>
-      {:else}
-        <div class="font-medium">Drop a .geojson or dtcc manifest here</div>
-      {/if}
-      <button
-        type="button"
-        class="text-xs text-dtcc-orange cursor-pointer underline mt-1 inline-block focus:outline-none focus:ring-2 focus:ring-dtcc-orange rounded"
-        onclick={openFilePicker}
-      >
-        {pendingManifest ? `or pick ${pendingManifest.artifactName}` : dataset ? 'or pick different files' : 'or pick files'}
-      </button>
-      <button
-        type="button"
-        class="text-xs text-dtcc-orange cursor-pointer underline mt-1 ml-2 inline-block focus:outline-none focus:ring-2 focus:ring-dtcc-orange rounded"
-        onclick={openFolderPicker}
-      >
-        pick a folder
-      </button>
-      <input
-        bind:this={fileInput}
-        type="file"
-        multiple
-        accept=".geojson,.json,.manifest.json,application/geo+json,application/json"
-        aria-label="Dataset files"
-        class="sr-only"
-        oncancel={resetTimer}
-        onchange={onFileInput}
-      />
-      <input
-        bind:this={folderInput}
-        type="file"
-        multiple
-        webkitdirectory
-        aria-label="Dataset folder"
-        class="sr-only"
-        oncancel={resetTimer}
-        onchange={onFolderInput}
-      />
-    </div>
 
     {#if error}
       <p class="text-xs text-dtcc-red mt-2">{error}</p>

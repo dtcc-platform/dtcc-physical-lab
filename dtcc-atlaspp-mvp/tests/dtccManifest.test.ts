@@ -148,6 +148,8 @@ describe('dtcc manifest input helpers', () => {
 
   it.each([
     ['unsafe artifact path', { file: '../smoke_streamlines.png' }, /file must be relative/],
+    ['Windows-style traversal path', { file: '..\\smoke_streamlines.png' }, /file must be relative/],
+    ['Windows drive path', { file: 'C:\\Users\\victim\\secret.png' }, /file must be relative/],
     ['malformed bounds', { bounds: [319720, 6397660, 320220] }, /bounds must be four finite numbers/],
     ['unsupported format', { format: 'vtu', media_type: 'model\/vtu' }, /format vtu is not supported/],
     ['PNG with wrong data_kind', { data_kind: 'video' }, /png manifests must have data_kind raster/],
