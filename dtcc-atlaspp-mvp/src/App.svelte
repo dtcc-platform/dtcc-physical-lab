@@ -38,6 +38,7 @@
     samples: [] as Array<{ id: string; title: string; kind: 'geojson' | 'image' | 'video' }>,
     samplesLoaded: false,
     samplesError: null as string | null,
+    onlineDatasets: [] as ProjectorStatePublish['onlineDatasets'],
     busy: false,
     busyReason: undefined as undefined | 'staticSample' | 'folderManifest' | 'onlineCatalog' | 'onlineDataset' | 'remoteSample',
     error: null as string | null,
@@ -45,6 +46,7 @@
   let remoteStatus = $state<null | { projectorSessionId: string; remoteUrl: string; pin: string; pinExpiresAt: string }>(null);
   let remoteRevision = 0;
   let externalDatasetChangeRevision = $state(0);
+  let externalOnlineDatasetRequest = $state<{ id: string; revision: number } | null>(null);
   let projectorRemote = $state<ReturnType<typeof createProjectorRemote> | null>(null);
 
   // Step 4 reports its current corner positions + homography here so Next can
@@ -156,6 +158,7 @@
       samples: controlStatus.samples,
       samplesLoaded: controlStatus.samplesLoaded,
       samplesError: controlStatus.samplesError,
+      onlineDatasets: controlStatus.onlineDatasets,
       busy: controlStatus.busy,
       ...(controlStatus.busyReason !== undefined ? { busyReason: controlStatus.busyReason } : {}),
       error: controlStatus.error,
@@ -200,6 +203,13 @@
       }
       handleLoadSample(result.payload);
       externalDatasetChangeRevision += 1;
+      return;
+    }
+    if (command.type === 'selectOnlineDataset') {
+      externalOnlineDatasetRequest = {
+        id: command.onlineDatasetId,
+        revision: (externalOnlineDatasetRequest?.revision ?? 0) + 1,
+      };
     }
   }
 
@@ -346,6 +356,7 @@
     controlStatus.samples;
     controlStatus.samplesLoaded;
     controlStatus.samplesError;
+    controlStatus.onlineDatasets;
     controlStatus.busy;
     controlStatus.busyReason;
     controlStatus.error;
@@ -383,6 +394,7 @@
   autoHide={false}
   backHidden={step === 1 || dataset === null}
   {externalDatasetChangeRevision}
+  {externalOnlineDatasetRequest}
   onLoadDataset={handleLoadDataset}
   onLoadSample={handleLoadSample}
   onClearDataset={handleClearDataset}

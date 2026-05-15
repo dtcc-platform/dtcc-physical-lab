@@ -12,6 +12,7 @@ function state(revision) {
     samples: [],
     samplesLoaded: true,
     samplesError: null,
+    onlineDatasets: [],
     busy: false,
     error: null,
     updatedAt: new Date(revision).toISOString(),

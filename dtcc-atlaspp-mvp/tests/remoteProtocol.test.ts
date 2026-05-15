@@ -12,6 +12,7 @@ const baseState = {
   samples: [{ id: 'sample', title: 'Sample', kind: 'geojson' }],
   samplesLoaded: true,
   samplesError: null,
+  onlineDatasets: [{ id: 'online@v1', title: 'Online Slice', kind: 'geojson', format: 'geojson' }],
   busy: false,
   error: null,
   updatedAt: '2026-05-15T10:00:00.000Z',
@@ -32,6 +33,7 @@ describe('remoteProtocol', () => {
     expect(isProjectorStatePublish({ ...baseState, samplesLoaded: false, samplesError: 'catalog failed' })).toBe(true);
     expect(isProjectorStatePublish({ ...baseState, busy: true, busyReason: 'remoteSample' })).toBe(true);
     expect(isProjectorStatePublish({ ...baseState, samples: [{ id: 'sample', title: 'Sample', kind: 'pdf' }] })).toBe(false);
+    expect(isProjectorStatePublish({ ...baseState, onlineDatasets: [{ id: 'online@v1', title: 'Online Slice', kind: 'geojson', format: 'pdf' }] })).toBe(false);
     expect(isProjectorStatePublish({ ...baseState, busyReason: 'unknown' })).toBe(false);
   });
 
@@ -40,8 +42,9 @@ describe('remoteProtocol', () => {
     expect(isHexColor('38bdf8')).toBe(false);
     expect(isRemoteCommandInput({ clientCommandId: 'cmd-1', type: 'next' })).toBe(true);
     expect(isRemoteCommandInput({ clientCommandId: 'cmd-2', type: 'selectSample', sampleId: 'sample-grid' })).toBe(true);
-    expect(isRemoteCommandInput({ clientCommandId: 'cmd-3', type: 'setColor', color: '#E35A1D' })).toBe(true);
-    expect(isRemoteCommandInput({ clientCommandId: 'cmd-4', type: 'setColor', color: 'orange' })).toBe(false);
+    expect(isRemoteCommandInput({ clientCommandId: 'cmd-3', type: 'selectOnlineDataset', onlineDatasetId: 'online@v1' })).toBe(true);
+    expect(isRemoteCommandInput({ clientCommandId: 'cmd-4', type: 'setColor', color: '#E35A1D' })).toBe(true);
+    expect(isRemoteCommandInput({ clientCommandId: 'cmd-5', type: 'setColor', color: 'orange' })).toBe(false);
     expect(isRemoteCommandInput({ clientCommandId: '', type: 'next' })).toBe(false);
   });
 });

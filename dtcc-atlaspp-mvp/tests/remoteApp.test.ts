@@ -16,6 +16,7 @@ function state(overrides = {}) {
     samples: [{ id: 'sample', title: 'Sample', kind: 'geojson' }],
     samplesLoaded: true,
     samplesError: null,
+    onlineDatasets: [],
     busy: false,
     error: null,
     updatedAt: '2026-05-15T10:00:00.000Z',
@@ -125,6 +126,44 @@ describe('RemoteApp', () => {
       expect(document.body.textContent).toContain('Invalid or expired PIN');
     });
     expect(document.querySelector<HTMLInputElement>('#remote-pin')).not.toBeNull();
+  });
+
+  it('shows fetched online datasets and posts an online selection command', async () => {
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/pairing') return new Response(JSON.stringify({ remoteToken: 'remote-token' }));
+      if (url === '/api/state') return new Response(JSON.stringify({
+        state: state({
+          onlineDatasets: [{ id: 'online@v1', title: 'Online Slice', kind: 'geojson', format: 'geojson' }],
+        }),
+      }));
+      if (url === '/api/commands') {
+        const body = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({ command: { id: 1, ...body } }));
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    component = mount(RemoteApp, { target });
+    const input = document.querySelector<HTMLInputElement>('#remote-pin')!;
+    input.value = '123456';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLSelectElement>('#remote-online-dataset')).not.toBeNull();
+    });
+
+    const select = document.querySelector<HTMLSelectElement>('#remote-online-dataset')!;
+    select.value = 'online@v1';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith('/api/commands', expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"type":"selectOnlineDataset"'),
+      }));
+    });
   });
 
   it('clears a stale remote token on unexpected projector session change', async () => {

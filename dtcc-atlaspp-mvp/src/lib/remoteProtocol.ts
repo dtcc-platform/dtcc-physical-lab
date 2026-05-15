@@ -13,6 +13,16 @@ export type RemoteSampleSummary = {
   kind: DatasetContent['kind'];
 };
 
+export type RemoteOnlineDatasetSummary = {
+  id: string;
+  title: string;
+  kind: DatasetContent['kind'];
+  format: 'geojson' | 'png' | 'mp4';
+  product?: string;
+  totalBytes?: number;
+  fileCount?: number;
+};
+
 export type BusyReason = 'staticSample' | 'folderManifest' | 'onlineCatalog' | 'onlineDataset' | 'remoteSample';
 
 export type ProjectorState = {
@@ -28,6 +38,7 @@ export type ProjectorState = {
   samples: RemoteSampleSummary[];
   samplesLoaded: boolean;
   samplesError: string | null;
+  onlineDatasets: RemoteOnlineDatasetSummary[];
   busy: boolean;
   busyReason?: BusyReason;
   error: string | null;
@@ -42,6 +53,7 @@ export type RemoteCommandInput =
   | { clientCommandId: string; type: 'back' }
   | { clientCommandId: string; type: 'clear' }
   | { clientCommandId: string; type: 'selectSample'; sampleId: string }
+  | { clientCommandId: string; type: 'selectOnlineDataset'; onlineDatasetId: string }
   | { clientCommandId: string; type: 'setColor'; color: string };
 
 export type QueuedRemoteCommand = RemoteCommandInput & { id: number };
@@ -99,6 +111,19 @@ function isSampleSummary(value: unknown): value is RemoteSampleSummary {
   );
 }
 
+function isOnlineDatasetSummary(value: unknown): value is RemoteOnlineDatasetSummary {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.title === 'string' &&
+    isDatasetKind(value.kind) &&
+    (value.format === 'geojson' || value.format === 'png' || value.format === 'mp4') &&
+    (value.product === undefined || typeof value.product === 'string') &&
+    (value.totalBytes === undefined || typeof value.totalBytes === 'number') &&
+    (value.fileCount === undefined || typeof value.fileCount === 'number')
+  );
+}
+
 function isBusyReason(value: unknown): value is BusyReason {
   return (
     value === 'staticSample' ||
@@ -126,6 +151,8 @@ export function isProjectorStatePublish(value: unknown): value is ProjectorState
     value.samples.every(isSampleSummary) &&
     typeof value.samplesLoaded === 'boolean' &&
     (value.samplesError === null || typeof value.samplesError === 'string') &&
+    Array.isArray(value.onlineDatasets) &&
+    value.onlineDatasets.every(isOnlineDatasetSummary) &&
     typeof value.busy === 'boolean' &&
     (value.busyReason === undefined || isBusyReason(value.busyReason)) &&
     (value.error === null || typeof value.error === 'string') &&
@@ -138,6 +165,7 @@ export function isRemoteCommandInput(value: unknown): value is RemoteCommandInpu
   if (typeof value.clientCommandId !== 'string' || value.clientCommandId.length === 0) return false;
   if (value.type === 'next' || value.type === 'back' || value.type === 'clear') return true;
   if (value.type === 'selectSample') return typeof value.sampleId === 'string' && value.sampleId.length > 0;
+  if (value.type === 'selectOnlineDataset') return typeof value.onlineDatasetId === 'string' && value.onlineDatasetId.length > 0;
   if (value.type === 'setColor') return isHexColor(value.color);
   return false;
 }

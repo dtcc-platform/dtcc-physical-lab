@@ -29,6 +29,7 @@
     samples: Array<{ id: string; title: string; kind: 'geojson' | 'image' | 'video' }>;
     samplesLoaded: boolean;
     samplesError: string | null;
+    onlineDatasets: Array<{ id: string; title: string; kind: 'geojson' | 'image' | 'video'; format: 'geojson' | 'png' | 'mp4' }>;
     busy: boolean;
     busyReason?: 'staticSample' | 'folderManifest' | 'onlineCatalog' | 'onlineDataset' | 'remoteSample';
     error: string | null;
@@ -47,6 +48,7 @@
     onBack,
     onControlStatus = () => {},
     externalDatasetChangeRevision = 0,
+    externalOnlineDatasetRequest = null,
   } = $props<{
     dataset: Dataset | null;
     nextDisabled?: boolean;
@@ -68,6 +70,7 @@
     onBack?: () => void;
     onControlStatus?: (status: ControlPanelStatus) => void;
     externalDatasetChangeRevision?: number;
+    externalOnlineDatasetRequest?: { id: string; revision: number } | null;
   }>();
 
   let visible = $state(true);
@@ -91,6 +94,7 @@
   let onlineDatasetLoading = $state(false);
   let onlineListGeneration = 0;
   let onlineDatasetGeneration = 0;
+  let handledExternalOnlineDatasetRevision = 0;
   let localObjectUrl: string | null = null;
 
   type DatasetSource = 'fetch' | 'local' | 'samples';
@@ -355,6 +359,7 @@
       samples: catalogEntries.map((entry) => ({ id: entry.id, title: entry.title, kind: entry.kind })),
       samplesLoaded: catalogLoaded,
       samplesError: catalogError,
+      onlineDatasets: onlineEntries.map((entry) => ({ id: entry.id, title: entry.title, kind: entry.kind, format: entry.format })),
       busy: sampleLoading || onlineListLoading || onlineDatasetLoading,
       busyReason: sampleLoading ? 'staticSample' : onlineDatasetLoading ? 'onlineDataset' : onlineListLoading ? 'onlineCatalog' : undefined,
       error,
@@ -367,6 +372,37 @@
     clearFolderManifestSelections();
     clearOnlineDatasetSelection();
     revokeLocalObjectUrl();
+  });
+
+  $effect(() => {
+    const request = externalOnlineDatasetRequest;
+    if (!request || request.revision === handledExternalOnlineDatasetRevision) return;
+    const entry = onlineEntries.find((candidate) => candidate.id === request.id);
+    if (!entry) {
+      if (onlineEntries.length > 0) {
+        handledExternalOnlineDatasetRevision = request.revision;
+        error = `unknown online dataset ${request.id}`;
+      }
+      return;
+    }
+
+    handledExternalOnlineDatasetRevision = request.revision;
+    selectedOnlineId = entry.id;
+    error = null;
+    pendingManifest = null;
+    clearFolderManifestSelections();
+    onlineDatasetLoading = true;
+    const generation = ++onlineDatasetGeneration;
+    loadOnlineDataset(entry, generation)
+      .catch((err) => {
+        if (generation === onlineDatasetGeneration) error = (err as Error).message;
+      })
+      .finally(() => {
+        if (generation === onlineDatasetGeneration) {
+          onlineDatasetLoading = false;
+          resetTimer();
+        }
+      });
   });
 
   function folderManifestId(selection: DtccManifestFileSelection, index: number): string {

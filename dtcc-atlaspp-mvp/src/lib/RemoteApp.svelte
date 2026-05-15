@@ -154,6 +154,25 @@
         </select>
       {/if}
 
+      {#if state.onlineDatasets.length > 0}
+        <label class="block text-sm font-medium mb-1" for="remote-online-dataset">Online dataset</label>
+        <select
+          id="remote-online-dataset"
+          class="w-full rounded border border-dtcc-border px-2 py-2 mb-3"
+          value=""
+          disabled={commandInFlight === 'selectOnlineDataset' || !state.projectorOnline}
+          onchange={(e) => {
+            const onlineDatasetId = (e.currentTarget as HTMLSelectElement).value;
+            if (onlineDatasetId) void postCommand({ type: 'selectOnlineDataset', onlineDatasetId });
+          }}
+        >
+          <option value="">Select online dataset...</option>
+          {#each state.onlineDatasets as online}
+            <option value={online.id}>{online.title} ({online.format.toUpperCase()})</option>
+          {/each}
+        </select>
+      {/if}
+
       {#if state.dataset?.kind === 'geojson' && state.color}
         <label class="block text-sm font-medium mb-1" for="remote-color">Color</label>
         <input

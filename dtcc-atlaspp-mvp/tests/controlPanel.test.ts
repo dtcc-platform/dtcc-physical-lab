@@ -22,7 +22,7 @@ class ResizeObserverStub {
   disconnect() {}
 }
 
-function mountPanel() {
+function mountPanel(extraProps: Record<string, unknown> = {}) {
   const target = document.createElement('div');
   document.body.appendChild(target);
   const onLoadSample = vi.fn();
@@ -36,6 +36,7 @@ function mountPanel() {
       onClearDataset: vi.fn(),
       onSetColor: vi.fn(),
       onNext: vi.fn(),
+      ...extraProps,
     },
   });
 
@@ -164,5 +165,46 @@ describe('ControlPanel dataset source tabs', () => {
       title: 'Sample grid',
       content: expect.objectContaining({ kind: 'geojson' }),
     }));
+  });
+
+  it('reports fetched online datasets for the remote state', async () => {
+    const onControlStatus = vi.fn();
+    mounted = mountPanel({ onControlStatus });
+    await flushEffects();
+
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/datasets/catalog.json') return new Response(JSON.stringify(catalog));
+      if (url === 'https://atlas.example/v1/datasets?limit=100') {
+        return new Response(JSON.stringify({
+          items: [
+            {
+              dataset_key: 'online-slice',
+              version_id: 'v1',
+              title: 'Online Slice',
+              bounds_json: '[0,0,1,1]',
+              format: 'geojson',
+              media_type: 'application/geo+json',
+              data_kind: 'vector',
+            },
+          ],
+        }));
+      }
+      return new Response('not found', { status: 404, statusText: 'Not Found' });
+    });
+
+    const urlInput = document.querySelector<HTMLInputElement>('#online-catalog-url')!;
+    urlInput.value = 'https://atlas.example';
+    urlInput.dispatchEvent(new Event('input', { bubbles: true }));
+    const tokenInput = document.querySelector<HTMLInputElement>('#online-catalog-token')!;
+    tokenInput.value = 'browse-token';
+    tokenInput.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector<HTMLButtonElement>('#dataset-source-fetch button')!.click();
+
+    await vi.waitFor(() => {
+      expect(onControlStatus).toHaveBeenCalledWith(expect.objectContaining({
+        onlineDatasets: [{ id: 'online-slice@v1', title: 'Online Slice', kind: 'geojson', format: 'geojson' }],
+      }));
+    });
   });
 });
