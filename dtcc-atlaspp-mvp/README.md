@@ -11,12 +11,44 @@ Standalone web app that projects EPSG:3006 (SWEREF99 TM) GeoJSONs onto a 3 m × 
 ```bash
 npm install
 npm run dev     # dev server on http://localhost:5175
+npm run dev:remote # Vite on 5175 plus control API on 5176
 npm run build   # static site in dist/
 npm run preview # serve the built dist/
 npm test        # vitest unit tests
 ```
 
 Deploy `dist/` under a **local HTTP server** (`caddy file-server`, `python -m http.server`, `npx vite preview`). `file://` is not supported.
+
+## Operator remote
+
+The operator remote is a LAN-only browser page for a second device such as an iPad. The projector Mac remains the source of truth; the remote only posts discrete commands through the local control server.
+
+Dev mode:
+
+```bash
+npm run dev:remote
+```
+
+Open the projector page on the Mac:
+
+```text
+http://localhost:5175/projector
+```
+
+Open the remote on the iPad using the Mac LAN IP:
+
+```text
+http://192.168.1.42:5175/remote
+```
+
+Production mode:
+
+```bash
+npm run build
+npm run control:serve
+```
+
+Use the 6-digit PIN shown on the projector to pair the iPad. After server restart or projector reload, old remote tokens are invalidated and the iPad must pair again.
 
 ## Calibration flow
 

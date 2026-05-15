@@ -25,19 +25,21 @@ class ResizeObserverStub {
 function mountPanel() {
   const target = document.createElement('div');
   document.body.appendChild(target);
+  const onLoadSample = vi.fn();
   const component = mount(ControlPanel, {
     target,
     props: {
       dataset: null,
       autoHide: false,
       onLoadDataset: vi.fn(),
+      onLoadSample,
       onClearDataset: vi.fn(),
       onSetColor: vi.fn(),
       onNext: vi.fn(),
     },
   });
 
-  return { target, component };
+  return { target, component, onLoadSample };
 }
 
 async function flushEffects() {
@@ -93,6 +95,8 @@ describe('ControlPanel dataset source tabs', () => {
     expect(document.querySelector<HTMLInputElement>('#online-catalog-url')).toBeNull();
     expect(document.querySelector<HTMLSelectElement>('#sample-dataset')).toBeNull();
 
+    tab('Local').click();
+    await tick();
     tab('Samples').click();
     await tick();
 
@@ -116,5 +120,49 @@ describe('ControlPanel dataset source tabs', () => {
     expect(event.defaultPrevented).toBe(true);
     expect(tab('Local').getAttribute('aria-selected')).toBe('true');
     expect(document.querySelector('[aria-label="Dataset drop zone"]')).not.toBeNull();
+  });
+
+  it('loads a static sample through the projector panel using the shared loader', async () => {
+    mounted = mountPanel();
+    await flushEffects();
+
+    tab('Local').click();
+    await tick();
+    tab('Samples').click();
+    await tick();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLSelectElement>('#sample-dataset')).not.toBeNull();
+    });
+
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/datasets/sample-grid.geojson') {
+        return new Response(JSON.stringify({
+          type: 'FeatureCollection',
+          crs: { type: 'name', properties: { name: 'EPSG:3006' } },
+          features: [
+            {
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [319950, 6398000] },
+              properties: {},
+            },
+          ],
+        }));
+      }
+      return new Response(JSON.stringify(catalog));
+    });
+
+    const select = document.querySelector<HTMLSelectElement>('#sample-dataset')!;
+    select.value = 'sample-grid';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushEffects();
+
+    expect(mounted.onLoadSample).toHaveBeenCalledWith(expect.objectContaining({
+      filename: 'sample-grid.geojson',
+      catalogId: 'sample-grid',
+      title: 'Sample grid',
+      content: expect.objectContaining({ kind: 'geojson' }),
+    }));
   });
 });

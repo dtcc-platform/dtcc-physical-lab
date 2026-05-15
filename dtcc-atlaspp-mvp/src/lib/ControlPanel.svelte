@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { parseCatalog, type CatalogEntry } from './catalog';
+  import type { CatalogEntry } from './catalog';
   import {
     findManifestArtifact,
     isDtccManifestFile,
@@ -22,7 +22,17 @@
     saveOnlineCatalogSettings,
     type OnlineCatalogEntry,
   } from './onlineCatalog';
+  import { fetchStaticCatalog, loadImage, loadStaticSample, loadVideo } from './sampleCatalog';
   import type { Bbox, Dataset, DatasetContent } from './storage';
+
+  type ControlPanelStatus = {
+    samples: Array<{ id: string; title: string; kind: 'geojson' | 'image' | 'video' }>;
+    samplesLoaded: boolean;
+    samplesError: string | null;
+    busy: boolean;
+    busyReason?: 'staticSample' | 'folderManifest' | 'onlineCatalog' | 'onlineDataset' | 'remoteSample';
+    error: string | null;
+  };
 
   let {
     dataset,
@@ -35,6 +45,8 @@
     onSetColor,
     onNext,
     onBack,
+    onControlStatus = () => {},
+    externalDatasetChangeRevision = 0,
   } = $props<{
     dataset: Dataset | null;
     nextDisabled?: boolean;
@@ -54,6 +66,8 @@
     onSetColor: (color: string) => void;
     onNext: () => void;
     onBack?: () => void;
+    onControlStatus?: (status: ControlPanelStatus) => void;
+    externalDatasetChangeRevision?: number;
   }>();
 
   let visible = $state(true);
@@ -63,6 +77,8 @@
   let fileInput = $state<HTMLInputElement | null>(null);
   let folderInput = $state<HTMLInputElement | null>(null);
   let catalogEntries = $state<CatalogEntry[]>([]);
+  let catalogLoaded = $state(false);
+  let catalogError = $state<string | null>(null);
   let sampleLoading = $state(false);
   let pendingManifest = $state<DtccManifest | null>(null);
   let folderManifestSelections = $state<DtccManifestFileSelection[]>([]);
@@ -277,14 +293,17 @@
     let cancelled = false;
 
     async function loadCatalog() {
-      try {
-        const response = await fetch('/datasets/catalog.json', { cache: 'no-cache' });
-        if (!response.ok) return;
-        const parsed = parseCatalog(await response.json());
-        if (!cancelled && parsed.ok) catalogEntries = parsed.value.entries;
-      } catch {
-        // Missing or invalid catalogs simply hide the selector; drag/drop remains available.
+      catalogLoaded = false;
+      catalogError = null;
+      const result = await fetchStaticCatalog();
+      if (cancelled) return;
+      if (result.ok) {
+        catalogEntries = result.value.entries;
+      } else {
+        catalogEntries = [];
+        catalogError = result.error;
       }
+      catalogLoaded = true;
     }
 
     loadCatalog();
@@ -298,31 +317,6 @@
     onlineBaseUrl = saved.baseUrl;
     onlineToken = saved.token;
   });
-
-  function datasetUrl(file: string): string {
-    return `/datasets/${file}`;
-  }
-
-  function loadImage(src: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error('image sample failed to load'));
-      image.src = src;
-    });
-  }
-
-  function loadVideo(src: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const video = document.createElement('video');
-      video.muted = true;
-      video.preload = 'metadata';
-      video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error('video sample failed to load'));
-      video.src = src;
-      video.load();
-    });
-  }
 
   function revokeLocalObjectUrl() {
     if (!localObjectUrl) return;
@@ -355,6 +349,25 @@
     onlineDatasetGeneration++;
     onlineDatasetLoading = false;
   }
+
+  $effect(() => {
+    onControlStatus({
+      samples: catalogEntries.map((entry) => ({ id: entry.id, title: entry.title, kind: entry.kind })),
+      samplesLoaded: catalogLoaded,
+      samplesError: catalogError,
+      busy: sampleLoading || onlineListLoading || onlineDatasetLoading,
+      busyReason: sampleLoading ? 'staticSample' : onlineDatasetLoading ? 'onlineDataset' : onlineListLoading ? 'onlineCatalog' : undefined,
+      error,
+    });
+  });
+
+  $effect(() => {
+    if (externalDatasetChangeRevision === 0) return;
+    pendingManifest = null;
+    clearFolderManifestSelections();
+    clearOnlineDatasetSelection();
+    revokeLocalObjectUrl();
+  });
 
   function folderManifestId(selection: DtccManifestFileSelection, index: number): string {
     return selection.manifestPath ?? `${selection.manifest.title}-${index}`;
@@ -560,50 +573,13 @@
     clearOnlineDatasetSelection();
     sampleLoading = true;
     try {
-      const src = datasetUrl(entry.file);
-      if (entry.kind === 'geojson') {
-        const response = await fetch(src, { cache: 'no-cache' });
-        if (!response.ok) {
-          error = `sample fetch failed (${response.status} ${response.statusText})`;
-          return;
-        }
-        const result = validateGeoJSON(await response.text());
-        if (!result.ok) {
-          error = result.error;
-          return;
-        }
-        revokeLocalObjectUrl();
-        onLoadSample({
-          filename: entry.file,
-          bounds: entry.bounds,
-          catalogId: entry.id,
-          title: entry.title,
-          ...(entry.description !== undefined ? { description: entry.description } : {}),
-          content: { kind: 'geojson', geojson: result.value, style: defaultStyle() },
-        });
-      } else if (entry.kind === 'image') {
-        await loadImage(src);
-        revokeLocalObjectUrl();
-        onLoadSample({
-          filename: entry.file,
-          bounds: entry.bounds,
-          catalogId: entry.id,
-          title: entry.title,
-          ...(entry.description !== undefined ? { description: entry.description } : {}),
-          content: { kind: 'image', src, mediaType: 'image/png' },
-        });
-      } else {
-        await loadVideo(src);
-        revokeLocalObjectUrl();
-        onLoadSample({
-          filename: entry.file,
-          bounds: entry.bounds,
-          catalogId: entry.id,
-          title: entry.title,
-          ...(entry.description !== undefined ? { description: entry.description } : {}),
-          content: { kind: 'video', src, mediaType: 'video/mp4', muted: true, autoplay: true, loop: true },
-        });
+      const result = await loadStaticSample(entry);
+      if (!result.ok) {
+        error = result.error;
+        return;
       }
+      revokeLocalObjectUrl();
+      onLoadSample(result.payload);
     } catch (err) {
       error = (err as Error).message;
     } finally {
@@ -900,6 +876,9 @@
           Samples
         </button>
       </div>
+      {#if catalogLoaded && catalogError}
+        <p class="text-xs text-dtcc-red mt-2">{catalogError}</p>
+      {/if}
     </div>
 
     {#if activeDatasetSource === 'fetch'}

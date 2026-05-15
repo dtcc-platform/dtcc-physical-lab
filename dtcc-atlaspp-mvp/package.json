@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:remote": "node scripts/dev-remote.mjs",
+    "control:dev": "ATLAS_REMOTE_PUBLIC_URL=http://127.0.0.1:5175/remote node server/control-server.mjs --port 5176 --host 127.0.0.1",
+    "control:serve": "node server/control-server.mjs --port 5175 --host 0.0.0.0 --static dist",
     "build": "tsc --noEmit && vite build",
     "catalog:ingest": "node scripts/ingest-dtcc-manifests.mjs",
     "preview": "vite preview",

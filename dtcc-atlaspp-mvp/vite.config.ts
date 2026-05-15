@@ -1,13 +1,29 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 export default defineConfig({
-  plugins: [svelte(), tailwindcss()],
+  plugins: [
+    {
+      name: 'atlas-projector-alias',
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          if (req.url === '/projector') req.url = '/';
+          next();
+        });
+      },
+    },
+    svelte(),
+    tailwindcss(),
+  ],
   server: {
     port: 5175,
     open: true,
     strictPort: true,
+    proxy: {
+      '/api': 'http://127.0.0.1:5176',
+    },
   },
   preview: {
     // Matches the dev port so the verification checklist and README can
@@ -20,6 +36,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        remote: resolve(__dirname, 'remote.html'),
+      },
+    },
   },
   test: {
     environment: 'happy-dom',

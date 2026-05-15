@@ -1,10 +1,13 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import Calibrate from './lib/Calibrate.svelte';
   import CalibrateOsm from './lib/CalibrateOsm.svelte';
   import CalibratePan from './lib/CalibratePan.svelte';
   import CalibrateCorners from './lib/CalibrateCorners.svelte';
   import CalibrateProjection from './lib/CalibrateProjection.svelte';
   import ControlPanel from './lib/ControlPanel.svelte';
+  import { createProjectorRemote } from './lib/projectorRemote';
+  import { fetchStaticCatalog, loadStaticSample } from './lib/sampleCatalog';
   import { scaleFactor } from './lib/scaleFactor';
   import {
     loadDataset,
@@ -20,6 +23,7 @@
     type DatasetContent,
   } from './lib/storage';
   import type { FeatureCollection } from './lib/geojson';
+  import type { ProjectorStatePublish, QueuedRemoteCommand } from './lib/remoteProtocol';
 
   const initialDataset = loadDataset();
   const initialCalibration = loadCalibration();
@@ -30,6 +34,18 @@
   let step = $state<1 | 2 | 3 | 4 | 5>(initialDataset && initialCalibration ? 5 : 1);
   let panX = $state(0);
   let panY = $state(0);
+  let controlStatus = $state({
+    samples: [] as Array<{ id: string; title: string; kind: 'geojson' | 'image' | 'video' }>,
+    samplesLoaded: false,
+    samplesError: null as string | null,
+    busy: false,
+    busyReason: undefined as undefined | 'staticSample' | 'folderManifest' | 'onlineCatalog' | 'onlineDataset' | 'remoteSample',
+    error: null as string | null,
+  });
+  let remoteStatus = $state<null | { projectorSessionId: string; remoteUrl: string; pin: string; pinExpiresAt: string }>(null);
+  let remoteRevision = 0;
+  let externalDatasetChangeRevision = $state(0);
+  let projectorRemote = $state<ReturnType<typeof createProjectorRemote> | null>(null);
 
   // Step 4 reports its current corner positions + homography here so Next can
   // commit them as a saved calibration.
@@ -117,6 +133,76 @@
     dataset = next;
   }
 
+  function datasetSummary() {
+    if (!dataset) return null;
+    return {
+      filename: dataset.filename,
+      ...(dataset.title !== undefined ? { title: dataset.title } : {}),
+      ...(dataset.catalogId !== undefined ? { catalogId: dataset.catalogId } : {}),
+      kind: dataset.content.kind,
+    };
+  }
+
+  function projectorStatePublish(): ProjectorStatePublish {
+    remoteRevision += 1;
+    return {
+      projectorSessionId: remoteStatus?.projectorSessionId ?? 'unregistered',
+      revision: remoteRevision,
+      step,
+      dataset: datasetSummary(),
+      nextDisabled,
+      backHidden: step === 1 || dataset === null,
+      ...(dataset?.content.kind === 'geojson' ? { color: dataset.content.style.color } : {}),
+      samples: controlStatus.samples,
+      samplesLoaded: controlStatus.samplesLoaded,
+      samplesError: controlStatus.samplesError,
+      busy: controlStatus.busy,
+      ...(controlStatus.busyReason !== undefined ? { busyReason: controlStatus.busyReason } : {}),
+      error: controlStatus.error,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  async function handleRemoteCommand(command: QueuedRemoteCommand) {
+    if (command.type === 'next') {
+      if (!nextDisabled) handleNext();
+      return;
+    }
+    if (command.type === 'back') {
+      if (dataset && step !== 1) handleBack();
+      return;
+    }
+    if (command.type === 'clear') {
+      handleClearDataset();
+      return;
+    }
+    if (command.type === 'setColor') {
+      handleSetColor(command.color);
+      return;
+    }
+    if (command.type === 'selectSample') {
+      const catalog = await fetchStaticCatalog();
+      if (!catalog.ok) {
+        controlStatus = { ...controlStatus, samplesLoaded: true, samplesError: catalog.error, busy: false, busyReason: undefined };
+        return;
+      }
+      const entry = catalog.value.entries.find((candidate) => candidate.id === command.sampleId);
+      if (!entry) {
+        controlStatus = { ...controlStatus, error: `unknown sample ${command.sampleId}` };
+        return;
+      }
+      controlStatus = { ...controlStatus, busy: true, busyReason: 'remoteSample', error: null };
+      const result = await loadStaticSample(entry);
+      controlStatus = { ...controlStatus, busy: false, busyReason: undefined };
+      if (!result.ok) {
+        controlStatus = { ...controlStatus, error: result.error };
+        return;
+      }
+      handleLoadSample(result.payload);
+      externalDatasetChangeRevision += 1;
+    }
+  }
+
   function setPan(x: number, y: number) {
     panX = x;
     panY = y;
@@ -201,6 +287,73 @@
   const seedCorners = $derived(
     pendingCorners?.cornerDst.map(([x, y]) => ({ x, y })),
   );
+
+  onMount(() => {
+    projectorRemote = createProjectorRemote({
+      getState: projectorStatePublish,
+      onCommand: handleRemoteCommand,
+      onStatus: (status) => {
+        remoteStatus = status
+          ? {
+              projectorSessionId: status.projectorSessionId,
+              remoteUrl: status.remoteUrl,
+              pin: status.pin,
+              pinExpiresAt: status.pinExpiresAt,
+            }
+          : null;
+      },
+    });
+
+    void projectorRemote.register()
+      .then(() => projectorRemote?.publishStateOnce())
+      .catch(() => {
+        remoteStatus = null;
+      });
+
+    const heartbeatTimer = window.setInterval(() => {
+      if (!projectorRemote?.isRegistered()) return;
+      void projectorRemote.publishStateOnce().catch(() => {
+        projectorRemote?.disconnect();
+      });
+    }, 1000);
+
+    const commandTimer = window.setInterval(() => {
+      if (!projectorRemote?.isRegistered()) return;
+      void projectorRemote.pollCommandsOnce().catch(() => {
+        projectorRemote?.disconnect();
+      });
+    }, 500);
+
+    const reconnectTimer = window.setInterval(() => {
+      if (projectorRemote?.isRegistered()) return;
+      void projectorRemote?.register().catch(() => {
+        projectorRemote?.disconnect();
+      });
+    }, 2000);
+
+    return () => {
+      window.clearInterval(heartbeatTimer);
+      window.clearInterval(commandTimer);
+      window.clearInterval(reconnectTimer);
+    };
+  });
+
+  $effect(() => {
+    if (!projectorRemote) return;
+    step;
+    dataset;
+    nextDisabled;
+    controlStatus.samples;
+    controlStatus.samplesLoaded;
+    controlStatus.samplesError;
+    controlStatus.busy;
+    controlStatus.busyReason;
+    controlStatus.error;
+    if (!projectorRemote.isRegistered()) return;
+    void projectorRemote.publishStateOnce().catch(() => {
+      projectorRemote?.disconnect();
+    });
+  });
 </script>
 
 {#if step === 1}
@@ -216,15 +369,25 @@
 {:else if step === 5 && dataset && calibration}
   <CalibrateProjection {dataset} {calibration} />
 {/if}
+<aside class="fixed left-4 bottom-4 max-w-sm rounded bg-white/90 text-dtcc-dark shadow px-3 py-2 text-xs z-40">
+  {#if remoteStatus}
+    <div class="font-semibold">Remote PIN {remoteStatus.pin}</div>
+    <div class="text-dtcc-muted truncate">{remoteStatus.remoteUrl}</div>
+  {:else}
+    <div class="text-dtcc-muted">Remote control reconnecting</div>
+  {/if}
+</aside>
 <ControlPanel
   {dataset}
   {nextDisabled}
   autoHide={false}
   backHidden={step === 1 || dataset === null}
+  {externalDatasetChangeRevision}
   onLoadDataset={handleLoadDataset}
   onLoadSample={handleLoadSample}
   onClearDataset={handleClearDataset}
   onSetColor={handleSetColor}
   onNext={handleNext}
   onBack={handleBack}
+  onControlStatus={(status) => (controlStatus = status)}
 />
