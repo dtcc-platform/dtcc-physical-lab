@@ -71,6 +71,22 @@ describe('controlState', () => {
     });
   });
 
+  it('rejects malformed projector state without poisoning revision ordering', () => {
+    const control = deterministicControl();
+    const registered = control.registerProjector({});
+    const malformedState = state(1);
+    delete malformedState.revision;
+
+    expect(control.publishState({ token: registered.projectorToken, state: malformedState })).toEqual({
+      ok: false,
+      status: 400,
+      error: 'invalid projector state',
+    });
+    expect(control.getState({ token: registered.projectorToken }).status).toBe(404);
+    expect(control.publishState({ token: registered.projectorToken, state: state(1) })).toEqual({ ok: true, acceptedRevision: 1 });
+    expect(control.publishState({ token: registered.projectorToken, state: state(1) }).status).toBe(409);
+  });
+
   it('deduplicates retried commands and prunes acknowledged commands', () => {
     const control = deterministicControl();
     const registered = control.registerProjector({});
@@ -99,6 +115,25 @@ describe('controlState', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe(400);
     expect(control.getCommands({ token: registered.projectorToken, after: 0 }).commands).toHaveLength(0);
+  });
+
+  it('evicts command dedupe IDs after the dedupe window expires', () => {
+    const nowRef = { value: 0 };
+    const control = deterministicControl({ nowRef });
+    const registered = control.registerProjector({});
+    const paired = control.pairRemote({ pin: '123456', ip: '127.0.0.1' });
+    if (!paired.ok) throw new Error('pair failed');
+
+    const first = control.enqueueCommand({ token: paired.value.remoteToken, command: { clientCommandId: 'cmd-ttl', type: 'next' } });
+    expect(first.command.id).toBe(1);
+
+    nowRef.value = 5 * 60 * 1000 + 1;
+    const second = control.enqueueCommand({ token: paired.value.remoteToken, command: { clientCommandId: 'cmd-ttl', type: 'next' } });
+
+    expect(second.command.id).toBe(2);
+    expect(control.getCommands({ token: registered.projectorToken, after: 0 }).commands).toEqual([
+      { id: 2, clientCommandId: 'cmd-ttl', type: 'next' },
+    ]);
   });
 
   it('checks invalid PIN attempts even when a remote is already paired', () => {

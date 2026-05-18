@@ -31,7 +31,83 @@ function isHexColor(value) {
   return typeof value === 'string' && /^#[0-9A-Fa-f]{6}$/.test(value);
 }
 
-function isRemoteCommandInput(value) {
+function isStep(value) {
+  return value === 1 || value === 2 || value === 3 || value === 4 || value === 5;
+}
+
+function isDatasetKind(value) {
+  return value === 'geojson' || value === 'image' || value === 'video';
+}
+
+function isDatasetSummary(value) {
+  if (value === null) return true;
+  if (!isRecord(value)) return false;
+  if (typeof value.filename !== 'string') return false;
+  if (!isDatasetKind(value.kind)) return false;
+  if (value.title !== undefined && typeof value.title !== 'string') return false;
+  if (value.catalogId !== undefined && typeof value.catalogId !== 'string') return false;
+  return true;
+}
+
+function isSampleSummary(value) {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.title === 'string' &&
+    isDatasetKind(value.kind)
+  );
+}
+
+function isOnlineDatasetSummary(value) {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.title === 'string' &&
+    isDatasetKind(value.kind) &&
+    (value.format === 'geojson' || value.format === 'png' || value.format === 'mp4') &&
+    (value.product === undefined || typeof value.product === 'string') &&
+    (value.totalBytes === undefined || typeof value.totalBytes === 'number') &&
+    (value.fileCount === undefined || typeof value.fileCount === 'number')
+  );
+}
+
+function isBusyReason(value) {
+  return (
+    value === 'staticSample' ||
+    value === 'folderManifest' ||
+    value === 'onlineCatalog' ||
+    value === 'onlineDataset' ||
+    value === 'remoteSample'
+  );
+}
+
+export function isProjectorStatePublish(value) {
+  if (!isRecord(value)) return false;
+  if ('projectorOnline' in value || 'remoteConnected' in value || 'projectorLastSeenAt' in value) return false;
+  return (
+    typeof value.projectorSessionId === 'string' &&
+    typeof value.revision === 'number' &&
+    Number.isInteger(value.revision) &&
+    value.revision > 0 &&
+    isStep(value.step) &&
+    isDatasetSummary(value.dataset) &&
+    typeof value.nextDisabled === 'boolean' &&
+    typeof value.backHidden === 'boolean' &&
+    (value.color === undefined || isHexColor(value.color)) &&
+    Array.isArray(value.samples) &&
+    value.samples.every(isSampleSummary) &&
+    typeof value.samplesLoaded === 'boolean' &&
+    (value.samplesError === null || typeof value.samplesError === 'string') &&
+    Array.isArray(value.onlineDatasets) &&
+    value.onlineDatasets.every(isOnlineDatasetSummary) &&
+    typeof value.busy === 'boolean' &&
+    (value.busyReason === undefined || isBusyReason(value.busyReason)) &&
+    (value.error === null || typeof value.error === 'string') &&
+    typeof value.updatedAt === 'string'
+  );
+}
+
+export function isRemoteCommandInput(value) {
   if (!isRecord(value)) return false;
   if (typeof value.clientCommandId !== 'string' || value.clientCommandId.length === 0) return false;
   if (value.type === 'next' || value.type === 'back' || value.type === 'clear') return true;
@@ -53,6 +129,25 @@ export function createControlState(options = {}) {
   let nextCommandId = 1;
   const attemptsByIp = new Map();
   let failedPinAttempts = 0;
+
+  function pruneCommandIds() {
+    if (!remote) return;
+    for (const [clientCommandId, command] of remote.commandIds) {
+      if (now() - command.createdAt > COMMAND_TTL_MS) remote.commandIds.delete(clientCommandId);
+    }
+    while (remote.commandIds.size > COMMAND_CAP) {
+      const oldestClientCommandId = remote.commandIds.keys().next().value;
+      if (oldestClientCommandId === undefined) break;
+      remote.commandIds.delete(oldestClientCommandId);
+    }
+  }
+
+  function pruneQueuedCommands(after = null) {
+    commands = commands
+      .filter((command) => (after === null || command.id > after) && now() - command.createdAt <= COMMAND_TTL_MS)
+      .slice(-COMMAND_CAP);
+    pruneCommandIds();
+  }
 
   function projectorOnline() {
     return !!projector && projector.lastSeenAt != null && now() - projector.lastSeenAt <= PROJECTOR_ONLINE_MS;
@@ -137,6 +232,7 @@ export function createControlState(options = {}) {
 
   function publishState({ token, state }) {
     if (!assertProjector(token)) return err(401, 'invalid projector token');
+    if (!isProjectorStatePublish(state)) return err(400, 'invalid projector state');
     projector.lastSeenAt = now();
     if (latestState && state.revision <= latestState.revision) {
       return { ok: false, status: 409, acceptedRevision: latestState.revision, currentRevision: latestState.revision };
@@ -155,19 +251,20 @@ export function createControlState(options = {}) {
   function enqueueCommand({ token, command }) {
     if (!touchRemote(token)) return err(401, 'invalid remote token');
     if (!isRemoteCommandInput(command)) return err(400, 'invalid command');
+    pruneCommandIds();
     const existing = remote.commandIds.get(command.clientCommandId);
     if (existing) return { command: existing };
     const queued = { id: nextCommandId++, ...command, createdAt: now() };
     remote.commandIds.set(command.clientCommandId, queued);
     commands.push(queued);
-    commands = commands.filter((item) => now() - item.createdAt <= COMMAND_TTL_MS).slice(-COMMAND_CAP);
+    pruneQueuedCommands();
     return { command: queued };
   }
 
   function getCommands({ token, after }) {
     if (!assertProjector(token)) return err(401, 'invalid projector token');
     projector.lastSeenAt = now();
-    commands = commands.filter((command) => command.id > after && now() - command.createdAt <= COMMAND_TTL_MS);
+    pruneQueuedCommands(after);
     return { commands: commands.map(({ createdAt, ...command }) => command) };
   }
 
