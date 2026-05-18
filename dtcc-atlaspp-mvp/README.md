@@ -10,8 +10,8 @@ Standalone web app that projects EPSG:3006 (SWEREF99 TM) GeoJSONs onto a 3 m × 
 
 ```bash
 npm install
-npm run dev     # dev server on http://localhost:5175
-npm run dev:remote # Vite on 5175 plus control API on 5176
+npm run dev      # Vite on 5175 plus control API on 5176
+npm run dev:vite # Vite-only server on http://localhost:5175
 npm run build   # static site in dist/
 npm run preview # serve the built dist/
 npm test        # vitest unit tests
@@ -26,7 +26,7 @@ The operator remote is a LAN-only browser page for a second device such as an iP
 Dev mode:
 
 ```bash
-npm run dev:remote
+npm run dev
 ```
 
 Open the projector page on the Mac:

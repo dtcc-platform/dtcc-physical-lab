@@ -2,7 +2,13 @@ import { spawn } from 'node:child_process';
 import { networkInterfaces } from 'node:os';
 
 function lanHost() {
-  for (const addresses of Object.values(networkInterfaces())) {
+  let interfaces;
+  try {
+    interfaces = networkInterfaces();
+  } catch {
+    return '127.0.0.1';
+  }
+  for (const addresses of Object.values(interfaces)) {
     for (const address of addresses ?? []) {
       if (address.family === 'IPv4' && !address.internal) return address.address;
     }
@@ -17,7 +23,7 @@ const children = [
     stdio: 'inherit',
     env: { ...process.env, ATLAS_REMOTE_PUBLIC_URL: publicRemoteUrl },
   }),
-  spawn('npm', ['run', 'dev', '--', '--host', '0.0.0.0'], { stdio: 'inherit' }),
+  spawn('npm', ['run', 'dev:vite', '--', '--host', '0.0.0.0'], { stdio: 'inherit' }),
 ];
 
 function stop(signal = 'SIGTERM') {
