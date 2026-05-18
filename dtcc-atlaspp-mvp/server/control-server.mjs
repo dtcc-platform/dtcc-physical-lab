@@ -132,9 +132,14 @@ export function startControlServer({
   port = 5176,
   host = '127.0.0.1',
   staticDir = null,
-  remoteUrl = process.env.ATLAS_REMOTE_PUBLIC_URL ?? `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}/remote`,
+  remoteUrl = undefined,
 } = {}) {
-  const control = createControlState({ remoteUrl });
+  const envRemoteUrl = process.env.ATLAS_REMOTE_PUBLIC_URL;
+  const advertisedRemoteUrl = remoteUrl ?? envRemoteUrl ?? `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}/remote`;
+  if (!remoteUrl && !envRemoteUrl && host === '0.0.0.0') {
+    console.warn('ATLAS_REMOTE_PUBLIC_URL is not set; the projector will advertise 127.0.0.1, which iPads cannot reach. Set it to the Mac LAN URL, for example ATLAS_REMOTE_PUBLIC_URL=http://192.168.1.42:5175/remote.');
+  }
+  const control = createControlState({ remoteUrl: advertisedRemoteUrl });
   const server = createServer(createRequestHandler({ control, staticDir }));
   server.listen(port, host, () => {
     console.log(`Atlas remote control server listening on http://${host}:${port}`);

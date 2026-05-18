@@ -1,6 +1,7 @@
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ControlPanel from '../src/lib/ControlPanel.svelte';
+import ControlPanelExternalRevisionHarness from './ControlPanelExternalRevisionHarness.svelte';
 
 const catalog = {
   version: 1,
@@ -206,5 +207,57 @@ describe('ControlPanel dataset source tabs', () => {
         onlineDatasets: [{ id: 'online-slice@v1', title: 'Online Slice', kind: 'geojson', format: 'geojson' }],
       }));
     });
+  });
+
+  it('clears online selection and loading state after an external sample replacement', async () => {
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/datasets/catalog.json') return new Response(JSON.stringify(catalog));
+      if (url === 'https://atlas.example/v1/datasets?limit=100') {
+        return new Response(JSON.stringify({
+          items: [
+            {
+              dataset_key: 'online-slice',
+              version_id: 'v1',
+              title: 'Online Slice',
+              bounds_json: '[0,0,1,1]',
+              format: 'geojson',
+              media_type: 'application/geo+json',
+              data_kind: 'vector',
+            },
+          ],
+        }));
+      }
+      return new Promise(() => {});
+    });
+
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const harness = mount(ControlPanelExternalRevisionHarness, { target });
+    mounted = { target, component: harness, onLoadSample: vi.fn() };
+    await flushEffects();
+
+    const urlInput = document.querySelector<HTMLInputElement>('#online-catalog-url')!;
+    urlInput.value = 'https://atlas.example';
+    urlInput.dispatchEvent(new Event('input', { bubbles: true }));
+    const tokenInput = document.querySelector<HTMLInputElement>('#online-catalog-token')!;
+    tokenInput.value = 'browse-token';
+    tokenInput.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector<HTMLButtonElement>('#dataset-source-fetch button')!.click();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLSelectElement>('#online-dataset')).not.toBeNull();
+    });
+
+    const onlineSelect = document.querySelector<HTMLSelectElement>('#online-dataset')!;
+    onlineSelect.value = 'online-slice@v1';
+    onlineSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(onlineSelect.disabled).toBe(true));
+
+    harness.bumpExternalDatasetChangeRevision();
+    await tick();
+
+    expect(onlineSelect.value).toBe('');
+    expect(onlineSelect.disabled).toBe(false);
   });
 });

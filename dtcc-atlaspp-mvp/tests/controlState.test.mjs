@@ -85,6 +85,36 @@ describe('controlState', () => {
     expect(control.getCommands({ token: registered.projectorToken, after: 1 }).commands).toHaveLength(0);
   });
 
+  it('rejects malformed commands before they reach the projector queue', () => {
+    const control = deterministicControl();
+    const registered = control.registerProjector({});
+    const paired = control.pairRemote({ pin: '123456', ip: '127.0.0.1' });
+    if (!paired.ok) throw new Error('pair failed');
+
+    const result = control.enqueueCommand({
+      token: paired.value.remoteToken,
+      command: { clientCommandId: 'cmd-bad', type: 'selectOnlineDataset' },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(400);
+    expect(control.getCommands({ token: registered.projectorToken, after: 0 }).commands).toHaveLength(0);
+  });
+
+  it('checks invalid PIN attempts even when a remote is already paired', () => {
+    const control = deterministicControl();
+    control.registerProjector({});
+    expect(control.pairRemote({ pin: '123456', ip: '127.0.0.1' }).ok).toBe(true);
+
+    const invalid = control.pairRemote({ pin: '000000', ip: '127.0.0.2' });
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) expect(invalid.status).toBe(401);
+
+    const duplicate = control.pairRemote({ pin: '123456', ip: '127.0.0.2' });
+    expect(duplicate.ok).toBe(false);
+    if (!duplicate.ok) expect(duplicate.status).toBe(409);
+  });
+
   it('refuses unauthenticated replacement of a live projector session', () => {
     const control = deterministicControl();
     const registered = control.registerProjector({});

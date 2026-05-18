@@ -23,6 +23,24 @@ function defaultRandomToken() {
   return randomUUID();
 }
 
+function isRecord(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isHexColor(value) {
+  return typeof value === 'string' && /^#[0-9A-Fa-f]{6}$/.test(value);
+}
+
+function isRemoteCommandInput(value) {
+  if (!isRecord(value)) return false;
+  if (typeof value.clientCommandId !== 'string' || value.clientCommandId.length === 0) return false;
+  if (value.type === 'next' || value.type === 'back' || value.type === 'clear') return true;
+  if (value.type === 'selectSample') return typeof value.sampleId === 'string' && value.sampleId.length > 0;
+  if (value.type === 'selectOnlineDataset') return typeof value.onlineDatasetId === 'string' && value.onlineDatasetId.length > 0;
+  if (value.type === 'setColor') return isHexColor(value.color);
+  return false;
+}
+
 export function createControlState(options = {}) {
   const now = options.now ?? (() => Date.now());
   const randomDigits = options.randomDigits ?? defaultRandomDigits;
@@ -88,7 +106,6 @@ export function createControlState(options = {}) {
       attempt.count = 0;
       attempt.windowStart = now();
     }
-    if (remote) return err(409, 'remote already paired');
     if (now() > projector.pinExpiresAt || pin !== projector.pin) {
       attempt.count += 1;
       failedPinAttempts += 1;
@@ -97,6 +114,7 @@ export function createControlState(options = {}) {
       if (failedPinAttempts >= 20) projector.pinExpiresAt = 0;
       return err(401, 'invalid or expired PIN');
     }
+    if (remote) return err(409, 'remote already paired');
 
     const remoteToken = randomToken();
     remote = { token: remoteToken, lastSeenAt: now(), commandIds: new Map() };
@@ -136,6 +154,7 @@ export function createControlState(options = {}) {
 
   function enqueueCommand({ token, command }) {
     if (!touchRemote(token)) return err(401, 'invalid remote token');
+    if (!isRemoteCommandInput(command)) return err(400, 'invalid command');
     const existing = remote.commandIds.get(command.clientCommandId);
     if (existing) return { command: existing };
     const queued = { id: nextCommandId++, ...command, createdAt: now() };
