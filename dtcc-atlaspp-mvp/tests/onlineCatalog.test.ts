@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearOnlineCatalogSettings,
   fetchOnlineArtifactBlob,
   fetchOnlineArtifactUrl,
   fetchOnlineCatalog,
   fetchOnlineCatalogUrl,
+  fetchOnlineConfig,
   fetchOnlineManifestText,
   fetchOnlineManifestUrl,
   fetchOnlineVersionDetail,
@@ -315,5 +316,44 @@ describe('online catalog network helpers', () => {
       'http://127.0.0.1:8000/v1/datasets/smoke%2Fslice/versions/v%201/files/media/smoke.geojson'
     );
     expect(calledInit).toEqual({ headers: { Authorization: 'Bearer browser-token' } });
+  });
+});
+
+describe('fetchOnlineConfig', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns normalized settings from the deployment config file', async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) =>
+        new Response(JSON.stringify({ baseUrl: 'https://catalog.example/', token: ' browse-tok ' })),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await fetchOnlineConfig()).toEqual({ baseUrl: 'https://catalog.example', token: 'browse-tok' });
+    expect(String(fetchMock.mock.calls[0][0])).toBe('/datasets/online-config.json');
+  });
+
+  it('returns null when the config file is missing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('not found', { status: 404 })));
+    expect(await fetchOnlineConfig()).toBeNull();
+  });
+
+  it('returns null when the config shape is invalid', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ baseUrl: 'https://catalog.example' }))));
+    expect(await fetchOnlineConfig()).toBeNull();
+  });
+
+  it('returns null when the base URL is invalid or the token empty', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ baseUrl: 'not a url', token: 'tok' }))));
+    expect(await fetchOnlineConfig()).toBeNull();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ baseUrl: 'https://catalog.example', token: '  ' }))));
+    expect(await fetchOnlineConfig()).toBeNull();
+  });
+
+  it('returns null when the config request throws', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+    expect(await fetchOnlineConfig()).toBeNull();
   });
 });

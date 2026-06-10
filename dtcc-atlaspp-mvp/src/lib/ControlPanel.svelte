@@ -20,7 +20,9 @@
     loadOnlineCatalogSettings,
     normalizeOnlineBaseUrl,
     saveOnlineCatalogSettings,
+    fetchOnlineConfig,
     type OnlineCatalogEntry,
+    type OnlineCatalogSettings,
   } from './onlineCatalog';
   import { fetchStaticCatalog, loadImage, loadStaticSample, loadVideo } from './sampleCatalog';
   import type { Bbox, Dataset, DatasetContent } from './storage';
@@ -94,6 +96,13 @@
   let onlineBaseUrl = $state('');
   let onlineToken = $state('');
   let onlineEntries = $state<OnlineCatalogEntry[]>([]);
+  // 'configured' when /datasets/online-config.json supplied the settings:
+  // the manual URL/token inputs are hidden and the catalog list loads
+  // automatically. 'resolving' until the config probe finishes, so the
+  // manual inputs never flash on configured deployments.
+  let onlineMode = $state<'resolving' | 'configured' | 'manual'>('resolving');
+  let onlineAutoError = $state<string | null>(null);
+  let onlineConfigSettings: OnlineCatalogSettings | null = null;
   let selectedOnlineId = $state('');
   let onlineListLoading = $state(false);
   let onlineDatasetLoading = $state(false);
@@ -327,6 +336,41 @@
     onlineToken = saved.token;
   });
 
+  // Deployment config takes precedence over saved manual settings; either
+  // way the catalog list is fetched automatically on mount so end users (and
+  // the iPad remote, which cannot enter URL/token) get a populated picker
+  // without clicking Fetch. Failures stay quiet — the projector must keep
+  // working offline with the Samples/Local tabs.
+  $effect(() => {
+    let cancelled = false;
+
+    async function initOnlineCatalog() {
+      const config = await fetchOnlineConfig();
+      if (cancelled) return;
+      if (config) {
+        onlineMode = 'configured';
+        onlineConfigSettings = config;
+        // The in-memory settings drive dataset selection fetches; they are
+        // deliberately never persisted, so deleting or rotating the config
+        // file fully revokes the token on the next load.
+        onlineBaseUrl = config.baseUrl;
+        onlineToken = config.token;
+        await handleOnlineFetch({ quiet: true, settings: config });
+      } else {
+        onlineMode = 'manual';
+        const saved = loadOnlineCatalogSettings();
+        if (saved.baseUrl.trim().length > 0 && saved.token.trim().length > 0) {
+          await handleOnlineFetch({ quiet: true, settings: saved });
+        }
+      }
+    }
+
+    initOnlineCatalog();
+    return () => {
+      cancelled = true;
+    };
+  });
+
   function revokeLocalObjectUrl() {
     if (!localObjectUrl) return;
     URL.revokeObjectURL(localObjectUrl);
@@ -423,25 +467,36 @@
     await loadManifestArtifact(selection.manifest, selection.artifact);
   }
 
-  async function handleOnlineFetch() {
+  // `settings` pins the quiet auto-fetch to validated config/saved values so
+  // it never races in-progress typing, never rewrites the inputs, and never
+  // persists anything; only an explicit manual Fetch saves settings.
+  async function handleOnlineFetch({
+    quiet = false,
+    settings,
+  }: { quiet?: boolean; settings?: OnlineCatalogSettings } = {}) {
     error = null;
-    pendingManifest = null;
-    clearFolderManifestSelections();
+    onlineAutoError = null;
+    if (!quiet) {
+      pendingManifest = null;
+      clearFolderManifestSelections();
+    }
 
-    const normalized = normalizeOnlineBaseUrl(onlineBaseUrl);
+    const normalized = normalizeOnlineBaseUrl(settings?.baseUrl ?? onlineBaseUrl);
     if (!normalized.ok) {
-      error = normalized.error;
+      if (!quiet) error = normalized.error;
       return;
     }
-    const token = onlineToken.trim();
+    const token = (settings?.token ?? onlineToken).trim();
     if (token.length === 0) {
-      error = 'enter online catalog URL and browse token';
+      if (!quiet) error = 'enter online catalog URL and browse token';
       return;
     }
 
-    onlineBaseUrl = normalized.value;
-    onlineToken = token;
-    saveOnlineCatalogSettings({ baseUrl: normalized.value, token });
+    if (!settings) {
+      onlineBaseUrl = normalized.value;
+      onlineToken = token;
+      saveOnlineCatalogSettings({ baseUrl: normalized.value, token });
+    }
 
     const generation = ++onlineListGeneration;
     onlineListLoading = true;
@@ -453,7 +508,8 @@
       if (generation !== onlineListGeneration) return;
       if (!result.ok) {
         onlineEntries = [];
-        error = result.error;
+        if (quiet) onlineAutoError = result.error;
+        else error = result.error;
         return;
       }
       onlineEntries = result.value;
@@ -930,6 +986,25 @@
         class="mb-3"
       >
         <div class="text-xs font-medium mb-2">Online catalog</div>
+        {#if onlineMode === 'configured'}
+          {#if onlineListLoading && onlineEntries.length === 0}
+            <p class="text-xs text-dtcc-muted">Loading datasets...</p>
+          {:else if onlineEntries.length === 0}
+            <p class="text-xs text-dtcc-muted">Online catalog unavailable</p>
+            {#if onlineAutoError}
+              <p class="text-xs text-dtcc-muted opacity-70">{onlineAutoError}</p>
+            {/if}
+            <button
+              type="button"
+              class="px-3 py-1 mt-1 text-xs rounded bg-dtcc-gray-light"
+              onclick={() => onlineConfigSettings && handleOnlineFetch({ quiet: true, settings: onlineConfigSettings })}
+            >
+              Retry
+            </button>
+          {/if}
+        {:else if onlineMode === 'resolving'}
+          <p class="text-xs text-dtcc-muted">Loading datasets...</p>
+        {:else}
         <label class="block text-xs text-dtcc-muted mb-1" for="online-catalog-url">Catalog URL</label>
         <input
           id="online-catalog-url"
@@ -953,7 +1028,7 @@
             type="button"
             class="px-3 py-1 text-xs rounded bg-dtcc-gray-light disabled:opacity-40"
             disabled={onlineListLoading}
-            onclick={handleOnlineFetch}
+            onclick={() => handleOnlineFetch()}
           >
             {onlineListLoading ? 'Fetching...' : 'Fetch'}
           </button>
@@ -965,6 +1040,7 @@
             Clear
           </button>
         </div>
+        {/if}
         {#if onlineEntries.length > 0}
           <label class="block text-xs font-medium mb-1 mt-2" for="online-dataset">Online dataset</label>
           <select

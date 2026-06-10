@@ -41,6 +41,27 @@ export function clearOnlineCatalogSettings(): void {
   localStorage.removeItem(KEY_TOKEN);
 }
 
+// Optional deployment config (#5): when /datasets/online-config.json is
+// present, end users get a plain dataset picker — the app resolves URL and
+// token from the file and fetches the catalog automatically. Missing or
+// invalid resolves to null, keeping the manual URL/token flow as fallback.
+// The file is served statically, so the token MUST be a low-privilege
+// read-only browse token.
+export async function fetchOnlineConfig(): Promise<OnlineCatalogSettings | null> {
+  try {
+    const response = await fetch('/datasets/online-config.json', { cache: 'no-cache' });
+    if (!response.ok) return null;
+    const value: unknown = await response.json();
+    if (!isRecord(value) || typeof value.baseUrl !== 'string' || typeof value.token !== 'string') return null;
+    const normalized = normalizeOnlineBaseUrl(value.baseUrl);
+    const token = value.token.trim();
+    if (!normalized.ok || token.length === 0) return null;
+    return { baseUrl: normalized.value, token };
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeOnlineBaseUrl(value: string): OnlineCatalogResult<string> {
   const trimmed = value.trim().replace(/\/+$/, '');
   try {

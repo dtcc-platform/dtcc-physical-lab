@@ -67,7 +67,11 @@ describe('ControlPanel dataset source tabs', () => {
     vi.stubGlobal('ResizeObserver', ResizeObserverStub);
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify(catalog))),
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes('/datasets/online-config.json')
+          ? new Response('not found', { status: 404 })
+          : new Response(JSON.stringify(catalog)),
+      ),
     );
   });
 
@@ -212,6 +216,7 @@ describe('ControlPanel dataset source tabs', () => {
   it('clears online selection and loading state after an external sample replacement', async () => {
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url === '/datasets/online-config.json') return new Response('not found', { status: 404 });
       if (url === '/datasets/catalog.json') return new Response(JSON.stringify(catalog));
       if (url === 'https://atlas.example/v1/datasets?limit=100') {
         return new Response(JSON.stringify({
@@ -236,6 +241,9 @@ describe('ControlPanel dataset source tabs', () => {
     const harness = mount(ControlPanelExternalRevisionHarness, { target });
     mounted = { target, component: harness, onLoadSample: vi.fn() };
     await flushEffects();
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLInputElement>('#online-catalog-url')).not.toBeNull();
+    });
 
     const urlInput = document.querySelector<HTMLInputElement>('#online-catalog-url')!;
     urlInput.value = 'https://atlas.example';
@@ -271,7 +279,11 @@ describe('ControlPanel startup default button', () => {
     vi.stubGlobal('ResizeObserver', ResizeObserverStub);
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify(catalog))),
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes('/datasets/online-config.json')
+          ? new Response('not found', { status: 404 })
+          : new Response(JSON.stringify(catalog)),
+      ),
     );
   });
 
@@ -317,5 +329,247 @@ describe('ControlPanel startup default button', () => {
     await flushEffects();
 
     expect(defaultButton()).toBeUndefined();
+  });
+});
+
+describe('ControlPanel configured online catalog', () => {
+  let mounted: ReturnType<typeof mountPanel> | null = null;
+
+  const onlineConfig = { baseUrl: 'https://catalog.example', token: 'browse-tok' };
+  const onlineRow = {
+    dataset_key: 'smoke-slice',
+    version_id: 'v1',
+    format: 'geojson',
+    media_type: 'application/geo+json',
+    title: 'Smoke Slice',
+    bounds_json: '[0, 0, 1, 1]',
+  };
+
+  function routeFetch(routes: Record<string, () => Response | Promise<Response>>) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        for (const [needle, make] of Object.entries(routes)) {
+          if (url.includes(needle)) return make();
+        }
+        return new Response('not found', { status: 404 });
+      }),
+    );
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    localStorage.clear();
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+  });
+
+  afterEach(async () => {
+    if (mounted) {
+      await unmount(mounted.component);
+      mounted.target.remove();
+      mounted = null;
+    }
+    vi.unstubAllGlobals();
+  });
+
+  it('auto-populates the online picker from the config file and hides manual inputs', async () => {
+    routeFetch({
+      '/datasets/online-config.json': () => new Response(JSON.stringify(onlineConfig)),
+      '/datasets/catalog.json': () => new Response(JSON.stringify(catalog)),
+      '/v1/datasets': () => new Response(JSON.stringify({ items: [onlineRow] })),
+    });
+    mounted = mountPanel();
+    await flushEffects();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLSelectElement>('#online-dataset')).not.toBeNull();
+    });
+
+    expect(document.querySelector('#online-catalog-url')).toBeNull();
+    expect(document.querySelector('#online-catalog-token')).toBeNull();
+    const fetchButton = Array.from(document.querySelectorAll('button:not([role="tab"])')).find(
+      (b) => b.textContent?.trim() === 'Fetch',
+    );
+    expect(fetchButton).toBeUndefined();
+    expect(document.querySelector('#online-dataset')?.textContent).toContain('Smoke Slice');
+  });
+
+  it('degrades quietly when the configured catalog is unreachable', async () => {
+    routeFetch({
+      '/datasets/online-config.json': () => new Response(JSON.stringify(onlineConfig)),
+      '/datasets/catalog.json': () => new Response(JSON.stringify(catalog)),
+      '/v1/datasets': () => new Response('boom', { status: 500 }),
+    });
+    mounted = mountPanel();
+    await flushEffects();
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('Online catalog unavailable');
+    });
+
+    expect(document.querySelector('#online-catalog-url')).toBeNull();
+    // The underlying reason renders as muted detail for field debugging, but
+    // never through the loud red error area.
+    expect(document.body.textContent).toContain('online catalog fetch failed');
+    const redError = Array.from(document.querySelectorAll('[class*="text-dtcc-red"]')).find(
+      (el) => el.textContent?.includes('online catalog fetch failed'),
+    );
+    expect(redError).toBeUndefined();
+  });
+
+  it('retries a failed configured fetch from the unavailable hint', async () => {
+    routeFetch({
+      '/datasets/online-config.json': () => new Response(JSON.stringify(onlineConfig)),
+      '/datasets/catalog.json': () => new Response(JSON.stringify(catalog)),
+      '/v1/datasets': () => new Response('boom', { status: 500 }),
+    });
+    mounted = mountPanel();
+    await flushEffects();
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('Online catalog unavailable');
+    });
+
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/v1/datasets')) return new Response(JSON.stringify({ items: [onlineRow] }));
+      return new Response('not found', { status: 404 });
+    });
+    const retry = Array.from(document.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Retry',
+    )!;
+    expect(retry).toBeDefined();
+    retry.click();
+    await flushEffects();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLSelectElement>('#online-dataset')).not.toBeNull();
+    });
+  });
+
+  it('shows no manual inputs while the config probe is still resolving', async () => {
+    routeFetch({
+      '/datasets/online-config.json': () => new Promise<Response>(() => {}),
+      '/datasets/catalog.json': () => new Response(JSON.stringify(catalog)),
+    });
+    mounted = mountPanel();
+    await flushEffects();
+
+    expect(document.querySelector('#online-catalog-url')).toBeNull();
+    expect(document.body.textContent).toContain('Loading datasets');
+  });
+
+  it('falls back to the manual flow when the config file is invalid', async () => {
+    routeFetch({
+      '/datasets/online-config.json': () => new Response(JSON.stringify({ baseUrl: 123 })),
+      '/datasets/catalog.json': () => new Response(JSON.stringify(catalog)),
+    });
+    mounted = mountPanel();
+    await flushEffects();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector('#online-catalog-url')).not.toBeNull();
+    });
+    expect(document.body.textContent).not.toContain('Online catalog unavailable');
+  });
+
+  it('stays quiet when saved manual settings fail to auto-fetch', async () => {
+    localStorage.setItem('dtcc-atlaspp-mvp.onlineCatalog.baseUrl', 'https://manual.example');
+    localStorage.setItem('dtcc-atlaspp-mvp.onlineCatalog.token', 'manual-tok');
+    routeFetch({
+      '/datasets/catalog.json': () => new Response(JSON.stringify(catalog)),
+      '/v1/datasets': () => new Response('boom', { status: 500 }),
+    });
+    mounted = mountPanel();
+    await flushEffects();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector('#online-catalog-url')).not.toBeNull();
+    });
+    const redError = Array.from(document.querySelectorAll('[class*="text-dtcc-red"]')).find(
+      (el) => el.textContent?.includes('online catalog fetch failed'),
+    );
+    expect(redError).toBeUndefined();
+    expect(document.body.textContent).not.toContain('Online catalog unavailable');
+  });
+
+  it('keeps the config-derived token out of localStorage', async () => {
+    routeFetch({
+      '/datasets/online-config.json': () => new Response(JSON.stringify(onlineConfig)),
+      '/datasets/catalog.json': () => new Response(JSON.stringify(catalog)),
+      '/v1/datasets': () => new Response(JSON.stringify({ items: [onlineRow] })),
+    });
+    mounted = mountPanel();
+    await flushEffects();
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLSelectElement>('#online-dataset')).not.toBeNull();
+    });
+
+    expect(localStorage.getItem('dtcc-atlaspp-mvp.onlineCatalog.baseUrl')).toBeNull();
+    expect(localStorage.getItem('dtcc-atlaspp-mvp.onlineCatalog.token')).toBeNull();
+  });
+
+  it('loads an online dataset end-to-end after selection from the configured picker', async () => {
+    const onlineManifest = {
+      name: 'smoke-slice',
+      title: 'Smoke Slice',
+      file: 'data.geojson',
+      format: 'geojson',
+      media_type: 'application/geo+json',
+      bounds: [319720, 6397660, 320220, 6398160],
+    };
+    const artifact = {
+      type: 'FeatureCollection',
+      crs: { type: 'name', properties: { name: 'EPSG:3006' } },
+      features: [
+        { type: 'Feature', geometry: { type: 'Point', coordinates: [319950, 6398000] }, properties: {} },
+      ],
+    };
+    routeFetch({
+      '/datasets/online-config.json': () => new Response(JSON.stringify(onlineConfig)),
+      '/datasets/catalog.json': () => new Response(JSON.stringify(catalog)),
+      '/manifest': () => new Response(JSON.stringify(onlineManifest)),
+      '/files/': () => new Response(JSON.stringify(artifact)),
+      '/versions/': () => new Response(JSON.stringify({ files: [{ path: 'data.geojson' }] })),
+      '/v1/datasets': () => new Response(JSON.stringify({ items: [onlineRow] })),
+    });
+    mounted = mountPanel();
+    await flushEffects();
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLSelectElement>('#online-dataset')).not.toBeNull();
+    });
+
+    const select = document.querySelector<HTMLSelectElement>('#online-dataset')!;
+    select.value = 'smoke-slice@v1';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await flushEffects();
+
+    await vi.waitFor(() => {
+      expect(mounted!.onLoadSample).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filename: 'data.geojson',
+          title: 'Smoke Slice',
+          content: expect.objectContaining({ kind: 'geojson' }),
+        }),
+      );
+    });
+  });
+
+  it('auto-fetches with saved manual settings when no config file exists', async () => {
+    localStorage.setItem('dtcc-atlaspp-mvp.onlineCatalog.baseUrl', 'https://manual.example');
+    localStorage.setItem('dtcc-atlaspp-mvp.onlineCatalog.token', 'manual-tok');
+    routeFetch({
+      '/datasets/catalog.json': () => new Response(JSON.stringify(catalog)),
+      '/v1/datasets': () => new Response(JSON.stringify({ items: [onlineRow] })),
+    });
+    mounted = mountPanel();
+    await flushEffects();
+
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLSelectElement>('#online-dataset')).not.toBeNull();
+    });
+
+    // Manual flow stays visible — only a config file hides the inputs.
+    expect(document.querySelector('#online-catalog-url')).not.toBeNull();
   });
 });
