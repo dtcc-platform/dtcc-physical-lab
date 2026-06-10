@@ -5,10 +5,16 @@ import {
   loadCalibration,
   saveCalibration,
   clearCalibration,
+  loadStartupDefaults,
+  saveStartupDefaults,
+  clearStartupDefaults,
+  resolveStartup,
+  initStartup,
   datasetFitBbox,
   bboxEqual,
   type Dataset,
   type Calibration,
+  type StartupDefaults,
 } from '../src/lib/storage';
 
 beforeEach(() => {
@@ -243,6 +249,197 @@ describe('calibration', () => {
     saveCalibration(c);
     clearCalibration();
     expect(loadCalibration()).toBeNull();
+  });
+});
+
+describe('startup defaults', () => {
+  const geojson = { type: 'FeatureCollection', features: [] } as any;
+  const dataset: Dataset = {
+    version: 3,
+    filename: 'default.geojson',
+    bounds: [319720, 6397660, 320220, 6398160],
+    content: { kind: 'geojson', geojson, style: { color: '#38bdf8' } },
+    uploadedAt: '2026-06-01T10:00:00.000Z',
+  };
+  const calibration: Calibration = {
+    version: 2,
+    panX: 5,
+    panY: -10,
+    cornerDst: [[100, 100], [900, 110], [905, 700], [110, 695]],
+    homography: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    savedAt: '2026-06-01T10:00:00.000Z',
+  };
+  const defaults: StartupDefaults = {
+    version: 1,
+    dataset,
+    calibration,
+    savedAt: '2026-06-01T10:05:00.000Z',
+  };
+
+  it('round-trips saved startup defaults', () => {
+    saveStartupDefaults(defaults);
+    expect(loadStartupDefaults()).toEqual(defaults);
+  });
+
+  it('returns null when not set', () => {
+    expect(loadStartupDefaults()).toBeNull();
+  });
+
+  it('returns null when the embedded dataset is corrupt', () => {
+    localStorage.setItem(
+      'dtcc-atlaspp-mvp.startupDefaults',
+      JSON.stringify({ ...defaults, dataset: { ...dataset, bounds: [1, 2, 3] } }),
+    );
+    expect(loadStartupDefaults()).toBeNull();
+  });
+
+  it('returns null when the embedded calibration is corrupt', () => {
+    localStorage.setItem(
+      'dtcc-atlaspp-mvp.startupDefaults',
+      JSON.stringify({ ...defaults, calibration: { ...calibration, homography: [1, 0] } }),
+    );
+    expect(loadStartupDefaults()).toBeNull();
+  });
+
+  it('survives Clear of the live dataset and calibration keys', () => {
+    saveStartupDefaults(defaults);
+    clearCalibration();
+    localStorage.removeItem('dtcc-atlaspp-mvp.dataset');
+    expect(loadStartupDefaults()).toEqual(defaults);
+  });
+
+  it('clearStartupDefaults removes the stored value', () => {
+    saveStartupDefaults(defaults);
+    clearStartupDefaults();
+    expect(loadStartupDefaults()).toBeNull();
+  });
+
+  describe('resolveStartup precedence (soft semantics)', () => {
+    it('last-session state wins over defaults and resumes the projection', () => {
+      const last = { ...dataset, filename: 'last.geojson' };
+      const result = resolveStartup(last, calibration, defaults);
+      expect(result).toEqual({ dataset: last, calibration, step: 5, fromDefaults: false });
+    });
+
+    it('a complete last session resumes the projection without any defaults', () => {
+      const result = resolveStartup(dataset, calibration, null);
+      expect(result).toEqual({ dataset, calibration, step: 5, fromDefaults: false });
+    });
+
+    it('an incomplete last session continues the wizard even when defaults exist', () => {
+      const last = { ...dataset, filename: 'in-progress.geojson' };
+      const result = resolveStartup(last, null, defaults);
+      expect(result).toEqual({ dataset: last, calibration: null, step: 1, fromDefaults: false });
+    });
+
+    it('defaults fill the gap when no last-session dataset exists', () => {
+      const result = resolveStartup(null, null, defaults);
+      expect(result).toEqual({ dataset, calibration, step: 5, fromDefaults: true });
+    });
+
+    it('defaults also win over a calibration-only orphan session', () => {
+      const result = resolveStartup(null, calibration, defaults);
+      expect(result).toEqual({ dataset, calibration, step: 5, fromDefaults: true });
+    });
+
+    it('a calibration-only orphan without defaults starts the wizard', () => {
+      const result = resolveStartup(null, calibration, null);
+      expect(result).toEqual({ dataset: null, calibration, step: 1, fromDefaults: false });
+    });
+
+    it('starts the calibration wizard when nothing is saved', () => {
+      expect(resolveStartup(null, null, null)).toEqual({
+        dataset: null,
+        calibration: null,
+        step: 1,
+        fromDefaults: false,
+      });
+    });
+  });
+
+  describe('initStartup live-key reconciliation', () => {
+    it('materializes a defaults boot into the live keys', () => {
+      saveStartupDefaults(defaults);
+
+      const result = initStartup();
+
+      expect(result.step).toBe(5);
+      expect(result.dataset).toEqual(dataset);
+      // A defaults boot must be indistinguishable from a resumed session, so
+      // later partial writes (recolor, recalibrate) can't strand half-state.
+      expect(loadDataset()).toEqual(dataset);
+      expect(loadCalibration()).toEqual(calibration);
+    });
+
+    it('leaves the live keys untouched when a last session exists', () => {
+      const last = { ...dataset, filename: 'last.geojson' };
+      const lastCalibration = { ...calibration, panX: 99 };
+      saveDataset(last);
+      saveCalibration(lastCalibration);
+      saveStartupDefaults(defaults);
+
+      const result = initStartup();
+
+      expect(result.dataset).toEqual(last);
+      expect(loadDataset()).toEqual(last);
+      expect(loadCalibration()).toEqual(lastCalibration);
+    });
+
+    it('replaces a stale calibration-only orphan when defaults boot', () => {
+      const stale = { ...calibration, panX: -777 };
+      saveCalibration(stale);
+      saveStartupDefaults(defaults);
+
+      const result = initStartup();
+
+      expect(result.calibration).toEqual(calibration);
+      expect(loadCalibration()).toEqual(calibration);
+    });
+
+    it('writes nothing when there is nothing to boot from', () => {
+      const result = initStartup();
+
+      expect(result).toEqual({ dataset: null, calibration: null, step: 1, fromDefaults: false });
+      expect(loadDataset()).toBeNull();
+      expect(loadCalibration()).toBeNull();
+    });
+  });
+
+  it('round-trips startup defaults with media dataset content', () => {
+    const media: StartupDefaults = {
+      ...defaults,
+      dataset: {
+        ...dataset,
+        filename: 'smoke.png',
+        content: { kind: 'image', src: '/datasets/smoke.png', mediaType: 'image/png' },
+      },
+    };
+    saveStartupDefaults(media);
+    expect(loadStartupDefaults()).toEqual(media);
+  });
+
+  it('migrates an embedded v2 dataset inside startup defaults', () => {
+    const v2dataset = {
+      version: 2,
+      filename: 'old.geojson',
+      geojson,
+      style: { color: '#38bdf8' },
+      uploadedAt: '2026-04-22T10:00:00.000Z',
+      projectionBbox: [316385.555, 6397546.957, 322614.029, 6403932.781],
+    };
+    localStorage.setItem(
+      'dtcc-atlaspp-mvp.startupDefaults',
+      JSON.stringify({ ...defaults, dataset: v2dataset }),
+    );
+    expect(loadStartupDefaults()?.dataset).toEqual({
+      version: 3,
+      filename: 'old.geojson',
+      uploadedAt: '2026-04-22T10:00:00.000Z',
+      bounds: [316385.555, 6397546.957, 322614.029, 6403932.781],
+      content: { kind: 'geojson', geojson, style: { color: '#38bdf8' } },
+    });
   });
 });
 

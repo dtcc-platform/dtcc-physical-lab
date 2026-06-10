@@ -47,6 +47,8 @@
     onNext,
     onBack,
     onControlStatus = () => {},
+    onSaveDefault,
+    canSaveDefault = false,
     externalDatasetChangeRevision = 0,
     externalOnlineDatasetRequest = null,
   } = $props<{
@@ -69,6 +71,9 @@
     onNext: () => void;
     onBack?: () => void;
     onControlStatus?: (status: ControlPanelStatus) => void;
+    // Snapshot the current dataset + calibration as the startup default (#8).
+    onSaveDefault?: () => void;
+    canSaveDefault?: boolean;
     externalDatasetChangeRevision?: number;
     externalOnlineDatasetRequest?: { id: string; revision: number } | null;
   }>();
@@ -1120,6 +1125,14 @@
         onclick={onNext}
       >Next</button>
       <button class="px-3 py-1 text-xs rounded bg-dtcc-gray-light disabled:opacity-40" disabled={!dataset} onclick={handleClear}>Clear</button>
+      {#if onSaveDefault}
+        <button
+          class="px-3 py-1 text-xs rounded bg-dtcc-gray-light disabled:opacity-40"
+          disabled={!canSaveDefault}
+          title="Use the current dataset and calibration on every startup"
+          onclick={onSaveDefault}
+        >Set startup default</button>
+      {/if}
     </div>
   </section>
 {/if}

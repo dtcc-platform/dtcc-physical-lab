@@ -10,12 +10,12 @@
   import { fetchStaticCatalog, loadStaticSample } from './lib/sampleCatalog';
   import { scaleFactor } from './lib/scaleFactor';
   import {
-    loadDataset,
     saveDataset,
     clearDataset,
-    loadCalibration,
     saveCalibration,
     clearCalibration,
+    saveStartupDefaults,
+    initStartup,
     bboxEqual,
     type Dataset,
     type Bbox,
@@ -25,13 +25,17 @@
   import type { FeatureCollection } from './lib/geojson';
   import type { ProjectorStatePublish, QueuedRemoteCommand } from './lib/remoteProtocol';
 
-  const initialDataset = loadDataset();
-  const initialCalibration = loadCalibration();
-  let dataset = $state<Dataset | null>(initialDataset);
-  let calibration = $state<Calibration | null>(initialCalibration);
-  // Boot resume: if both a dataset and a calibration are persisted, land
-  // directly on the projection view. Otherwise start the wizard from step 1.
-  let step = $state<1 | 2 | 3 | 4 | 5>(initialDataset && initialCalibration ? 5 : 1);
+  // Boot precedence (soft, #8/#9): a complete last session resumes the
+  // projection view; saved startup defaults fill in when there is no
+  // last-session dataset (and are written through to the live keys);
+  // otherwise the calibration wizard starts at step 1.
+  const startup = initStartup();
+  let dataset = $state<Dataset | null>(startup.dataset);
+  let calibration = $state<Calibration | null>(startup.calibration);
+  let step = $state<1 | 2 | 3 | 4 | 5>(startup.step);
+  // Media datasets loaded as blob object URLs (persist: false) cannot survive
+  // a reload, so they can't be saved as a startup default either.
+  let datasetPersistable = $state(startup.dataset !== null);
   let panX = $state(0);
   let panY = $state(0);
   let controlStatus = $state({
@@ -92,6 +96,7 @@
     // A new file invalidates pan and any prior calibration — they were keyed
     // to the old dataset's bbox/projection and the old viewport.
     dataset = next;
+    datasetPersistable = true;
     resetWizardState();
   }
 
@@ -114,6 +119,7 @@
     if (persist) saveDataset(next);
     else clearDataset();
     dataset = next;
+    datasetPersistable = persist;
     if (compatible) {
       step = 5;
     } else {
@@ -125,11 +131,24 @@
     clearDataset();
     setCalibration(null);
     dataset = null;
+    datasetPersistable = false;
     step = 1;
     panX = 0;
     panY = 0;
     pendingCorners = null;
     cornersBarHidden = false;
+  }
+
+  // Snapshot the current working state as the startup default (#8). Gated on
+  // a persistable dataset and a saved calibration via canSaveDefault below.
+  function handleSaveStartupDefault() {
+    if (!dataset || !calibration || !datasetPersistable) return;
+    saveStartupDefaults({
+      version: 1,
+      dataset: $state.snapshot(dataset),
+      calibration: $state.snapshot(calibration),
+      savedAt: new Date().toISOString(),
+    });
   }
 
   function handleSetColor(color: string) {
@@ -417,4 +436,6 @@
   onNext={handleNext}
   onBack={handleBack}
   onControlStatus={(status) => (controlStatus = status)}
+  onSaveDefault={handleSaveStartupDefault}
+  canSaveDefault={step === 5 && dataset !== null && calibration !== null && datasetPersistable}
 />
