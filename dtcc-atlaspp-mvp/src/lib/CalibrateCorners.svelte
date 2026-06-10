@@ -1,6 +1,12 @@
 <script lang="ts">
   import { featuresToRenderables, type Renderable } from './geojsonRender';
-  import { solveHomography, toMatrix3d, isDegenerate } from './homography';
+  import {
+    solveHomography,
+    toMatrix3d,
+    isDegenerate,
+    isConvexQuad,
+    isMirroredQuad,
+  } from './homography';
   import MediaLayer from './MediaLayer.svelte';
   import { datasetFitBbox, type Dataset } from './storage';
 
@@ -97,8 +103,31 @@
 
   const dstCorners = $derived(corners.map((c) => [c.x, c.y]) as [number, number][]);
 
+  // Quad centroid decides which way each square handle points inward (see the
+  // handle markup below).
+  const centroid = $derived({
+    x: (corners[0].x + corners[1].x + corners[2].x + corners[3].x) / 4,
+    y: (corners[0].y + corners[1].y + corners[2].y + corners[3].y) / 4,
+  });
+
+  // Rotate each handle about its corner-anchored origin so the square's
+  // diagonal points at the centroid. The outer corner stays exactly on the
+  // calibration point and the body extends inward, which keeps the box inside
+  // any quad with right-angled vertices (rotated rectangles included) at any
+  // rotation. Vertices squeezed well below 90° by extreme keystone can still
+  // clip slightly — acceptable for a 24px handle.
+  function handleRotation(c: Corner): number {
+    return (Math.atan2(centroid.y - c.y, centroid.x - c.x) * 180) / Math.PI - 45;
+  }
+
   const homography = $derived.by(() => solveHomography(srcCorners, dstCorners));
+  // Bow-tie, concave, and collapsed quads all fold the projection; a convex
+  // but reverse-wound quad would project mirror-imaged. Either way the
+  // homography is withheld so App keeps Next disabled.
+  const nonConvex = $derived(!isConvexQuad(dstCorners));
+  const mirrored = $derived(!nonConvex && isMirroredQuad(dstCorners));
   const degenerate = $derived(homography === null || isDegenerate(homography));
+  const invalid = $derived(degenerate || nonConvex || mirrored);
   const transformCss = $derived(homography === null ? 'none' : toMatrix3d(homography));
 
   // Push current corner state up to App so the parent can save calibration on Next.
@@ -110,58 +139,31 @@
         [corners[2].x, corners[2].y],
         [corners[3].x, corners[3].y],
       ],
-      degenerate ? null : homography,
+      invalid ? null : homography,
       width,
       height,
     );
   });
 
+  // Pointer-to-corner offset captured at grab time, so dragging moves the
+  // corner relative to where the handle was grabbed instead of snapping the
+  // corner onto the pointer.
+  let dragOffset = { x: 0, y: 0 };
+
   function startDrag(i: number, e: PointerEvent) {
     dragIndex = i;
+    dragOffset = { x: corners[i].x - e.clientX, y: corners[i].y - e.clientY };
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }
 
-  // Minimum 1px gap between paired corners — keeps the rectangle from
-  // collapsing to zero width or height (which would make the homography
-  // degenerate). Crossing past the opposite corner is also blocked here so
-  // the user can never invert the rectangle mid-drag.
-  const MIN_GAP_PX = 1;
-
+  // Each corner moves freely and independently, so the quad can match a
+  // rotated or tilted physical model. Collapsed or self-intersecting quads
+  // are allowed mid-drag; the `invalid` guard above withholds the homography
+  // (disabling Next in App) and the help bar explains what to fix.
   function move(e: PointerEvent) {
     if (dragIndex === null) return;
     const next: CornerQuad = [...corners] as CornerQuad;
-
-    // Constrain to an axis-aligned rectangle: dragging one corner pins the
-    // y of its horizontal pair and the x of its vertical pair, so all edges
-    // stay parallel to the viewport axes (90° corners only). Crossing the
-    // opposite corner is clamped so the rectangle can't invert.
-    // Order is TL=0, TR=1, BR=2, BL=3.
-    if (dragIndex === 0) {
-      const x = Math.min(e.clientX, corners[1].x - MIN_GAP_PX);
-      const y = Math.min(e.clientY, corners[3].y - MIN_GAP_PX);
-      next[0] = { x, y };
-      next[1] = { x: corners[1].x, y };
-      next[3] = { x, y: corners[3].y };
-    } else if (dragIndex === 1) {
-      const x = Math.max(e.clientX, corners[0].x + MIN_GAP_PX);
-      const y = Math.min(e.clientY, corners[2].y - MIN_GAP_PX);
-      next[1] = { x, y };
-      next[0] = { x: corners[0].x, y };
-      next[2] = { x, y: corners[2].y };
-    } else if (dragIndex === 2) {
-      const x = Math.max(e.clientX, corners[3].x + MIN_GAP_PX);
-      const y = Math.max(e.clientY, corners[1].y + MIN_GAP_PX);
-      next[2] = { x, y };
-      next[1] = { x, y: corners[1].y };
-      next[3] = { x: corners[3].x, y };
-    } else {
-      const x = Math.min(e.clientX, corners[2].x - MIN_GAP_PX);
-      const y = Math.max(e.clientY, corners[0].y + MIN_GAP_PX);
-      next[3] = { x, y };
-      next[0] = { x, y: corners[0].y };
-      next[2] = { x: corners[2].x, y };
-    }
-
+    next[dragIndex] = { x: e.clientX + dragOffset.x, y: e.clientY + dragOffset.y };
     corners = next;
   }
 
@@ -266,10 +268,15 @@
       stroke-dasharray="8 4"
     />
   </svg>
+  <!-- Square handles: the outer corner of each square sits exactly on the
+       calibration point and the body extends toward the quad centroid (see
+       handleRotation), so the whole indicator stays inside the calibration
+       area (and on the physical model surface) instead of straddling the
+       corner. z-10 keeps handles grabbable above the help bar. -->
   {#each corners as c, i (i)}
     <button
-      class="absolute w-6 h-6 rounded-full bg-dtcc-orange border-2 border-white cursor-move -translate-x-1/2 -translate-y-1/2"
-      style="left: {c.x}px; top: {c.y}px;"
+      class="absolute z-10 w-6 h-6 bg-dtcc-orange border-2 border-white cursor-move"
+      style="left: {c.x}px; top: {c.y}px; transform-origin: 0 0; transform: rotate({handleRotation(c)}deg);"
       onpointerdown={(e) => startDrag(i, e)}
       onpointermove={move}
       onpointerup={endDrag}
@@ -281,7 +288,11 @@
   <div class="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 text-dtcc-dark px-4 py-2 rounded-lg shadow-lg flex items-center gap-3">
     <span class="text-sm">Drag the orange corners onto the physical model's corners.</span>
     <button class="px-3 py-1 text-xs rounded bg-dtcc-gray-light" onclick={reset}>Reset corners</button>
-    {#if degenerate}
+    {#if nonConvex}
+      <span class="text-xs text-dtcc-red">Corners fold — keep the quad convex</span>
+    {:else if mirrored}
+      <span class="text-xs text-dtcc-red">Corners swapped — projection would mirror</span>
+    {:else if degenerate}
       <span class="text-xs text-dtcc-red">Degenerate — spread the corners</span>
     {/if}
   </div>

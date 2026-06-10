@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { solveHomography, toMatrix3d, isDegenerate } from '../src/lib/homography';
+import {
+  solveHomography,
+  toMatrix3d,
+  isDegenerate,
+  isConvexQuad,
+  isMirroredQuad,
+} from '../src/lib/homography';
 
 const square: [number, number][] = [
   [0, 0],
@@ -84,6 +90,80 @@ describe('toMatrix3d', () => {
     expect(toMatrix3d(tx)).toBe(
       'matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 30, 40, 0, 1)'
     );
+  });
+});
+
+describe('isConvexQuad', () => {
+  it('returns true for an axis-aligned square (CW winding)', () => {
+    expect(isConvexQuad(square)).toBe(true);
+  });
+
+  it('returns true for the same square in CCW winding', () => {
+    expect(isConvexQuad([...square].reverse() as [number, number][])).toBe(true);
+  });
+
+  it('returns true for a rotated/tilted quad', () => {
+    expect(
+      isConvexQuad([
+        [50, 0],
+        [100, 50],
+        [50, 100],
+        [0, 50],
+      ]),
+    ).toBe(true);
+  });
+
+  it('returns false for a self-intersecting (bow-tie) quad', () => {
+    // Two adjacent corners swapped: top edge crosses the bottom edge.
+    expect(
+      isConvexQuad([
+        [100, 0],
+        [0, 0],
+        [100, 100],
+        [0, 100],
+      ]),
+    ).toBe(false);
+  });
+
+  it('returns false when three corners are collinear', () => {
+    expect(
+      isConvexQuad([
+        [0, 0],
+        [50, 0],
+        [100, 0],
+        [0, 100],
+      ]),
+    ).toBe(false);
+  });
+
+  it('returns false for a concave (dart) quad', () => {
+    // One corner dented inward: the projection folds even though no edges cross.
+    expect(
+      isConvexQuad([
+        [0, 0],
+        [100, 0],
+        [50, 40],
+        [0, 100],
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe('isMirroredQuad', () => {
+  it('returns false for the TL,TR,BR,BL screen-space order', () => {
+    expect(isMirroredQuad(square)).toBe(false);
+  });
+
+  it('returns true when the quad winding is reversed (reflection)', () => {
+    // TL↔TR and BL↔BR swapped: convex, but projects mirror-imaged.
+    expect(
+      isMirroredQuad([
+        [100, 0],
+        [0, 0],
+        [0, 100],
+        [100, 100],
+      ]),
+    ).toBe(true);
   });
 });
 
