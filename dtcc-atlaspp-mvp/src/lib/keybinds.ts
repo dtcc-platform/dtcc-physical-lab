@@ -12,6 +12,21 @@ function isEditable(target: EventTarget | null): boolean {
   return false;
 }
 
+// Arrow-nudge granularity shared by the calibration steps. Held modifiers
+// shift the step: Alt or Cmd (⌥/⌘) for sub-cm fine-tune at 4K, Shift for fast
+// coarse moves. Fine takes priority if combined with Shift. Cmd+Arrow on
+// macOS is the browser back/forward shortcut; callers preventDefault in
+// their handlers to suppress that.
+const NUDGE_STEP_DEFAULT = 10;
+const NUDGE_STEP_FINE = 1;
+const NUDGE_STEP_COARSE = 50;
+
+export function stepFromEvent(e: KeyboardEvent): number {
+  if (e.altKey || e.metaKey) return NUDGE_STEP_FINE;
+  if (e.shiftKey) return NUDGE_STEP_COARSE;
+  return NUDGE_STEP_DEFAULT;
+}
+
 export function onKey(key: string, handler: Handler): () => void {
   const listener = (event: KeyboardEvent) => {
     if (isEditable(event.target)) return;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { onKey } from '../src/lib/keybinds';
+import { onKey, stepFromEvent } from '../src/lib/keybinds';
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -85,5 +85,26 @@ describe('onKey', () => {
     off();
     dispatchKey('c');
     expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe('stepFromEvent', () => {
+  const key = (init: KeyboardEventInit) => new KeyboardEvent('keydown', init);
+
+  it('returns the 10px default step without modifiers', () => {
+    expect(stepFromEvent(key({}))).toBe(10);
+  });
+
+  it('returns the 1px fine step with Alt or Meta', () => {
+    expect(stepFromEvent(key({ altKey: true }))).toBe(1);
+    expect(stepFromEvent(key({ metaKey: true }))).toBe(1);
+  });
+
+  it('returns the 50px coarse step with Shift', () => {
+    expect(stepFromEvent(key({ shiftKey: true }))).toBe(50);
+  });
+
+  it('fine wins when combined with Shift', () => {
+    expect(stepFromEvent(key({ altKey: true, shiftKey: true }))).toBe(1);
   });
 });
