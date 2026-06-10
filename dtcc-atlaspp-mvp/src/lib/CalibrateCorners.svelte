@@ -13,7 +13,7 @@
 
   type MediaFrame = { x: number; y: number; width: number; height: number };
 
-  let { dataset, panX, panY, onCornersChange, seedCorners } = $props<{
+  let { dataset, panX, panY, onCornersChange, seedCorners, barHidden, onBarHiddenChange } = $props<{
     dataset: Dataset;
     panX: number;
     panY: number;
@@ -24,6 +24,11 @@
       sourceHeight: number,
     ) => void;
     seedCorners?: { x: number; y: number }[];
+    // Bar visibility lives in App (like seedCorners, read at mount only) so
+    // the user's choice survives the {#key} remount and step navigation for
+    // the rest of the session.
+    barHidden?: boolean;
+    onBarHiddenChange?: (hidden: boolean) => void;
   }>();
 
   let width = $state(window.innerWidth);
@@ -91,8 +96,18 @@
     return initialCorners();
   }
 
+  function startingBarHidden(): boolean {
+    return barHidden ?? false;
+  }
+
   let corners: CornerQuad = $state(startingCorners());
   let dragIndex: number | null = $state(null);
+  let hideBar = $state(startingBarHidden());
+
+  function toggleBar() {
+    hideBar = !hideBar;
+    onBarHiddenChange?.(hideBar);
+  }
   // Keyboard target: exactly one corner is always selected so the arrow keys
   // have something to move; grabbing a handle with the pointer re-selects it.
   let selectedIndex = $state(0);
@@ -133,6 +148,18 @@
   const degenerate = $derived(homography === null || isDegenerate(homography));
   const invalid = $derived(degenerate || nonConvex || mirrored);
   const transformCss = $derived(homography === null ? 'none' : toMatrix3d(homography));
+
+  // Shown in the help bar, and standalone when the bar is hidden — Next is
+  // disabled while invalid, so the explanation must never be hidden with it.
+  const warning = $derived(
+    nonConvex
+      ? 'Corners fold — keep the quad convex'
+      : mirrored
+        ? 'Corners swapped — projection would mirror'
+        : degenerate
+          ? 'Degenerate — spread the corners'
+          : null,
+  );
 
   // Push current corner state up to App so the parent can save calibration on Next.
   $effect(() => {
@@ -187,7 +214,8 @@
   // order and focusing one selects it (onfocus below), so Tab both cycles
   // corners and can travel onward to the help bar and control panel — the
   // whole step stays completable keyboard-only without trapping focus.
-  // Keyboard input is ignored mid-drag so a pointermove can't clobber it.
+  // Keyboard input that mutates corners is ignored mid-drag so a pointermove
+  // can't clobber it; the bar toggle (h) is exempt since it only affects UI.
   $effect(() => {
     const nudge = (dx: number, dy: number) => (e: KeyboardEvent) => {
       if (dragIndex !== null) return;
@@ -212,6 +240,11 @@
       e.preventDefault();
       reset();
     };
+    const toggleBarKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey) return;
+      e.preventDefault();
+      toggleBar();
+    };
     const offs = [
       onKey('ArrowLeft', nudge(-1, 0)),
       onKey('ArrowRight', nudge(1, 0)),
@@ -223,6 +256,8 @@
       onKey('4', select(3)),
       onKey('r', resetKey),
       onKey('R', resetKey),
+      onKey('h', toggleBarKey),
+      onKey('H', toggleBarKey),
     ];
     return () => offs.forEach((off) => off());
   });
@@ -368,17 +403,36 @@
     >{i + 1}</span>
   {/each}
 
-  <div class="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 text-dtcc-dark px-4 py-2 rounded-lg shadow-lg flex items-center gap-3">
-    <span class="text-sm">
-      Drag or select a corner (Tab / 1–4), arrows move it (Shift coarse, ⌥ fine), R resets.
-    </span>
-    <button class="px-3 py-1 text-xs rounded bg-dtcc-gray-light" onclick={reset}>Reset corners</button>
-    {#if nonConvex}
-      <span class="text-xs text-dtcc-red">Corners fold — keep the quad convex</span>
-    {:else if mirrored}
-      <span class="text-xs text-dtcc-red">Corners swapped — projection would mirror</span>
-    {:else if degenerate}
-      <span class="text-xs text-dtcc-red">Degenerate — spread the corners</span>
+  {#if !hideBar}
+    <div class="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 text-dtcc-dark px-4 py-2 rounded-lg shadow-lg flex items-center gap-3">
+      <span class="text-sm">
+        Drag or select a corner (Tab / 1–4), arrows move it (Shift coarse, ⌥ fine), R resets, H hides.
+      </span>
+      <button class="px-3 py-1 text-xs rounded bg-dtcc-gray-light" onclick={reset}>Reset corners</button>
+      {#if warning}
+        <span class="text-xs text-dtcc-red">{warning}</span>
+      {/if}
+      <button
+        class="px-2 py-1 text-xs rounded bg-dtcc-gray-light"
+        onclick={toggleBar}
+        aria-label="Hide instructions"
+      >×</button>
+    </div>
+  {:else}
+    <!-- Low-contrast recovery chip so the bar can be brought back; the
+         validity warning stays standalone — hiding the bar must never hide
+         the reason Next is disabled. -->
+    <button
+      class="absolute top-4 right-4 w-7 h-7 rounded-full bg-white/20 text-white/70 text-sm"
+      onclick={toggleBar}
+      aria-label="Show instructions"
+      title="Show instructions (H)"
+    >?</button>
+    {#if warning}
+      <div class="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-2">
+        <span class="text-xs text-dtcc-red">{warning}</span>
+        <span class="text-xs text-dtcc-muted">R resets</span>
+      </div>
     {/if}
-  </div>
+  {/if}
 </div>
