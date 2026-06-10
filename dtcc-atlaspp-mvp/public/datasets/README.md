@@ -14,6 +14,21 @@ Rules enforced by `tests/catalog.test.ts`:
 
 The initial files are temporary copies from `public/fixtures/` so the static catalog path can be exercised before real pre-generated `dtcc-core` outputs are added. Replace or extend them with generated dataset exports as those become available.
 
+## Online catalog deployment config
+
+To give end users a plain dataset picker (no URL, token, or Fetch button), copy
+`online-config.example.json` to `online-config.json` in this directory and fill
+in the catalog base URL and a browse token. When the file is present, the app
+fetches the online catalog automatically on startup; when it is missing, the
+manual URL/token flow remains available. `online-config.json` is gitignored —
+it is served as a public static file, so only use a low-privilege read-only
+browse token.
+
+Built deployments serve `dist/`, so create the file before `npm run build` or
+copy it to `dist/datasets/online-config.json` afterwards. The projector reads
+it at startup and never persists it, so deleting or rotating the file takes
+effect on the next page load.
+
 To ingest `dtcc-core` sidecar manifests, run:
 
 ```bash

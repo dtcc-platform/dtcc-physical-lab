@@ -6,3 +6,4 @@ dist/
 .vite/
 coverage/
 acceptance-log-*/
+public/datasets/online-config.json
