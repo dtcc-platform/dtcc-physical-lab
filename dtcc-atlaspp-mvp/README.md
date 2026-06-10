@@ -50,7 +50,7 @@ ATLAS_REMOTE_PUBLIC_URL=http://192.168.1.42:5175/remote npm run control:serve
 
 Use the Mac's actual LAN IP in `ATLAS_REMOTE_PUBLIC_URL`. If this variable is omitted, the server warns and falls back to `127.0.0.1`, which works on the Mac but not from an iPad.
 
-Use the 6-digit PIN shown on the projector to pair the iPad. After server restart or projector reload, old remote tokens are invalidated and the iPad must pair again.
+Use the 3-digit PIN shown on the projector to pair the iPad. After server restart or projector reload, old remote tokens are invalidated and the iPad must pair again.
 
 ## Calibration flow
 

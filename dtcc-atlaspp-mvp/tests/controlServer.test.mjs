@@ -60,7 +60,7 @@ describe('control-server', () => {
   });
 
   it('returns live-session registration conflicts with 409 status', async () => {
-    const control = createControlState({ randomDigits: () => '123456', randomToken: () => Math.random().toString(16).slice(2) });
+    const control = createControlState({ randomDigits: () => '123', randomToken: () => Math.random().toString(16).slice(2) });
     const handler = createRequestHandler({ control });
 
     const first = await invoke(handler, { method: 'POST', url: '/api/projector/register' });
@@ -71,7 +71,7 @@ describe('control-server', () => {
   });
 
   it('enforces bearer auth for projector state publishes at the HTTP layer', async () => {
-    const control = createControlState({ randomDigits: () => '123456', randomToken: () => Math.random().toString(16).slice(2) });
+    const control = createControlState({ randomDigits: () => '123', randomToken: () => Math.random().toString(16).slice(2) });
     const handler = createRequestHandler({ control });
     const registered = JSON.parse((await invoke(handler, { method: 'POST', url: '/api/projector/register' })).body);
     const state = {

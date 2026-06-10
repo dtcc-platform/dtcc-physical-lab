@@ -4,7 +4,7 @@ import { createProjectorRemote } from '../src/lib/projectorRemote';
 const registerResponse = {
   projectorSessionId: 'projector-1',
   projectorToken: 'projector-token',
-  pin: '123456',
+  pin: '123',
   pinExpiresAt: '2026-05-15T10:10:00.000Z',
   remoteUrl: 'http://127.0.0.1:5175/remote',
 };
