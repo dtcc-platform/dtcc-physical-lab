@@ -1,6 +1,6 @@
 <script lang="ts">
   import { featuresToRenderables, type Renderable } from './geojsonRender';
-  import { onKey } from './keybinds';
+  import { onKey, stepFromEvent } from './keybinds';
   import MediaLayer from './MediaLayer.svelte';
   import { datasetFitBbox, type Dataset } from './storage';
 
@@ -17,20 +17,6 @@
   let height = $state(window.innerHeight);
 
   const PADDING_PX = 40;
-  // Pan step in screen pixels per arrow press. Held modifiers shift the
-  // granularity: Alt or Cmd (⌥/⌘) for sub-cm fine-tune at 4K, Shift for fast
-  // coarse moves. Fine takes priority if combined with Shift. Cmd+Arrow on
-  // macOS is the browser back/forward shortcut; preventDefault in the handler
-  // suppresses that.
-  const PAN_STEP_DEFAULT = 10;
-  const PAN_STEP_FINE = 1;
-  const PAN_STEP_COARSE = 50;
-
-  function stepFromEvent(e: KeyboardEvent): number {
-    if (e.altKey || e.metaKey) return PAN_STEP_FINE;
-    if (e.shiftKey) return PAN_STEP_COARSE;
-    return PAN_STEP_DEFAULT;
-  }
 
   function onResize() {
     width = window.innerWidth;

@@ -7,6 +7,7 @@
     isConvexQuad,
     isMirroredQuad,
   } from './homography';
+  import { onKey, stepFromEvent } from './keybinds';
   import MediaLayer from './MediaLayer.svelte';
   import { datasetFitBbox, type Dataset } from './storage';
 
@@ -92,6 +93,9 @@
 
   let corners: CornerQuad = $state(startingCorners());
   let dragIndex: number | null = $state(null);
+  // Keyboard target: exactly one corner is always selected so the arrow keys
+  // have something to move; grabbing a handle with the pointer re-selects it.
+  let selectedIndex = $state(0);
 
   // Square corners in screen space — the homography src.
   const srcCorners = $derived.by(() => [
@@ -152,6 +156,7 @@
 
   function startDrag(i: number, e: PointerEvent) {
     dragIndex = i;
+    selectedIndex = i;
     dragOffset = { x: corners[i].x - e.clientX, y: corners[i].y - e.clientY };
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   }
@@ -174,6 +179,64 @@
 
   function reset() {
     corners = initialCorners();
+  }
+
+  // Full keyboard calibration, mirroring the step-3 pan bindings: 1–4 selects
+  // a corner, arrows nudge it (stepFromEvent granularity), r resets. Tab is
+  // deliberately NOT intercepted: the handles are buttons in the native tab
+  // order and focusing one selects it (onfocus below), so Tab both cycles
+  // corners and can travel onward to the help bar and control panel — the
+  // whole step stays completable keyboard-only without trapping focus.
+  // Keyboard input is ignored mid-drag so a pointermove can't clobber it.
+  $effect(() => {
+    const nudge = (dx: number, dy: number) => (e: KeyboardEvent) => {
+      if (dragIndex !== null) return;
+      e.preventDefault();
+      const step = stepFromEvent(e);
+      const next: CornerQuad = [...corners] as CornerQuad;
+      next[selectedIndex] = {
+        x: corners[selectedIndex].x + dx * step,
+        y: corners[selectedIndex].y + dy * step,
+      };
+      corners = next;
+    };
+    const select = (i: number) => (e: KeyboardEvent) => {
+      e.preventDefault();
+      selectedIndex = i;
+    };
+    const resetKey = (e: KeyboardEvent) => {
+      // Leave Cmd+R / Ctrl+R to the browser (reload) — only a bare keypress
+      // is a deliberate corner reset.
+      if (e.metaKey || e.ctrlKey) return;
+      if (dragIndex !== null) return;
+      e.preventDefault();
+      reset();
+    };
+    const offs = [
+      onKey('ArrowLeft', nudge(-1, 0)),
+      onKey('ArrowRight', nudge(1, 0)),
+      onKey('ArrowUp', nudge(0, -1)),
+      onKey('ArrowDown', nudge(0, 1)),
+      onKey('1', select(0)),
+      onKey('2', select(1)),
+      onKey('3', select(2)),
+      onKey('4', select(3)),
+      onKey('r', resetKey),
+      onKey('R', resetKey),
+    ];
+    return () => offs.forEach((off) => off());
+  });
+
+  // Corner numbers sit just outside the calibration area, pushed away from
+  // the centroid, so they project onto the table surface rather than the
+  // raised physical model (issue #12) while labeling the 1–4 shortcuts.
+  const LABEL_MARGIN_PX = 28;
+
+  function labelPos(c: Corner): Corner {
+    const dx = c.x - centroid.x;
+    const dy = c.y - centroid.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: c.x + (dx / len) * LABEL_MARGIN_PX, y: c.y + (dy / len) * LABEL_MARGIN_PX };
   }
 
   // Direct fit-into-square + pan offset, identical to step 3. The CSS
@@ -275,18 +338,40 @@
        corner. z-10 keeps handles grabbable above the help bar. -->
   {#each corners as c, i (i)}
     <button
-      class="absolute z-10 w-6 h-6 bg-dtcc-orange border-2 border-white cursor-move"
+      class="absolute z-10 w-6 h-6 bg-dtcc-orange border-2 cursor-move {selectedIndex === i
+        ? 'border-dtcc-yellow ring-2 ring-dtcc-yellow'
+        : 'border-white'}"
       style="left: {c.x}px; top: {c.y}px; transform-origin: 0 0; transform: rotate({handleRotation(c)}deg);"
       onpointerdown={(e) => startDrag(i, e)}
       onpointermove={move}
       onpointerup={endDrag}
       onpointercancel={endDrag}
+      onfocus={() => (selectedIndex = i)}
       aria-label={`Calibration corner ${i + 1}`}
+      aria-pressed={selectedIndex === i}
     ></button>
   {/each}
 
+  <!-- Number labels for the 1–4 keyboard shortcuts, outside the quad so they
+       land on the table, not the model. Decorative for screen readers — the
+       handles above carry the accessible names. -->
+  {#each corners as c, i (i)}
+    {@const pos = labelPos(c)}
+    <span
+      class="absolute -translate-x-1/2 -translate-y-1/2 text-sm font-bold select-none pointer-events-none {selectedIndex ===
+      i
+        ? 'text-dtcc-yellow'
+        : 'text-white/70'}"
+      style="left: {pos.x}px; top: {pos.y}px;"
+      data-corner-label={i + 1}
+      aria-hidden="true"
+    >{i + 1}</span>
+  {/each}
+
   <div class="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 text-dtcc-dark px-4 py-2 rounded-lg shadow-lg flex items-center gap-3">
-    <span class="text-sm">Drag the orange corners onto the physical model's corners.</span>
+    <span class="text-sm">
+      Drag or select a corner (Tab / 1–4), arrows move it (Shift coarse, ⌥ fine), R resets.
+    </span>
     <button class="px-3 py-1 text-xs rounded bg-dtcc-gray-light" onclick={reset}>Reset corners</button>
     {#if nonConvex}
       <span class="text-xs text-dtcc-red">Corners fold — keep the quad convex</span>

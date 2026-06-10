@@ -285,3 +285,250 @@ describe('CalibrateCorners', () => {
     expect(document.body.textContent).toContain('Corners fold');
   });
 });
+
+async function pressKey(key: string, init: KeyboardEventInit = {}) {
+  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
+  window.dispatchEvent(event);
+  await flushEffects();
+  return event;
+}
+
+function selectedIndexFromDom(): number {
+  return handles().findIndex((b) => b.getAttribute('aria-pressed') === 'true');
+}
+
+function cornerLabels(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>('[data-corner-label]')).sort(
+    (a, b) => a.dataset.cornerLabel!.localeCompare(b.dataset.cornerLabel!),
+  );
+}
+
+// Each label must sit a fixed margin past its corner, pushed away from the
+// quad centroid, so it stays outside the calibration area (issue #12).
+function expectLabelsOutsideWithMargin(labels: HTMLElement[], quad: Pt[]) {
+  const centroid = {
+    x: quad.reduce((s, p) => s + p.x, 0) / 4,
+    y: quad.reduce((s, p) => s + p.y, 0) / 4,
+  };
+  labels.forEach((label, i) => {
+    const pos = { x: parseFloat(label.style.left), y: parseFloat(label.style.top) };
+    expect(insideConvexQuad(pos, quad)).toBe(false);
+    expect(Math.hypot(pos.x - quad[i].x, pos.y - quad[i].y)).toBeCloseTo(28, 4);
+    const outward =
+      (pos.x - quad[i].x) * (quad[i].x - centroid.x) +
+      (pos.y - quad[i].y) * (quad[i].y - centroid.y);
+    expect(outward).toBeGreaterThan(0);
+  });
+}
+
+describe('CalibrateCorners keyboard calibration', () => {
+  let mounted: ReturnType<typeof mountCorners> | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    (HTMLElement.prototype as any).setPointerCapture ??= () => {};
+    (HTMLElement.prototype as any).releasePointerCapture ??= () => {};
+  });
+
+  afterEach(async () => {
+    if (mounted) {
+      await unmount(mounted.component);
+      mounted.target.remove();
+      mounted = null;
+    }
+  });
+
+  it('selects the first corner by default and highlights it', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+    expect(selectedIndexFromDom()).toBe(0);
+    expect(handles()[0].className).toContain('ring-2');
+    for (const other of handles().slice(1)) {
+      expect(other.className).not.toContain('ring-2');
+    }
+  });
+
+  it('follows native focus onto a handle (Tab traversal selects corners)', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+
+    handles()[2].focus();
+    await flushEffects();
+    expect(selectedIndexFromDom()).toBe(2);
+
+    handles()[1].focus();
+    await flushEffects();
+    expect(selectedIndexFromDom()).toBe(1);
+  });
+
+  it('leaves Tab to native focus traversal instead of swallowing it', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+
+    const event = await pressKey('Tab');
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('selects corners directly with the number keys', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+
+    const event = await pressKey('3');
+    expect(selectedIndexFromDom()).toBe(2);
+    expect(event.defaultPrevented).toBe(true);
+    await pressKey('1');
+    expect(selectedIndexFromDom()).toBe(0);
+  });
+
+  it('moves the selected corner with arrow keys using the shared step sizes', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+    const before = handles().map(positionOf);
+
+    const plain = await pressKey('ArrowRight');
+    await pressKey('ArrowDown', { altKey: true });
+    await pressKey('ArrowLeft', { shiftKey: true });
+
+    const after = handles().map(positionOf);
+    expect(after[0]).toEqual({ x: before[0].x + 10 - 50, y: before[0].y + 1 });
+    expect(after[1]).toEqual(before[1]);
+    expect(after[2]).toEqual(before[2]);
+    expect(after[3]).toEqual(before[3]);
+    // Arrows are consumed so ⌘+Arrow doesn't trigger browser back/forward.
+    expect(plain.defaultPrevented).toBe(true);
+  });
+
+  it('moves the corner picked by keyboard selection, not the default one', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+    const before = handles().map(positionOf);
+
+    await pressKey('2');
+    await pressKey('ArrowDown');
+
+    const after = handles().map(positionOf);
+    expect(after[1]).toEqual({ x: before[1].x, y: before[1].y + 10 });
+    expect(after[0]).toEqual(before[0]);
+  });
+
+  it('syncs the selection to the corner grabbed with the pointer and nudges it next', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+    const before = handles().map(positionOf);
+
+    const br = handles()[2];
+    await drag(br, before[2], { x: before[2].x - 5, y: before[2].y - 5 });
+    expect(selectedIndexFromDom()).toBe(2);
+
+    await pressKey('ArrowUp');
+    const after = handles().map(positionOf);
+    expect(after[2]).toEqual({ x: before[2].x - 5, y: before[2].y - 15 });
+    expect(after[0]).toEqual(before[0]);
+  });
+
+  it('ignores keyboard input while a pointer drag is active', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+    const initial = handles().map(positionOf);
+
+    // Move away from the default layout first, so a stray reset is visible.
+    const tl = handles()[0];
+    await drag(tl, initial[0], { x: initial[0].x + 30, y: initial[0].y + 30 });
+    const before = handles().map(positionOf);
+
+    firePointer(tl, 'pointerdown', before[0].x, before[0].y);
+    await flushEffects();
+
+    await pressKey('ArrowRight');
+    expect(handles().map(positionOf)).toEqual(before);
+    await pressKey('r');
+    expect(handles().map(positionOf)).toEqual(before);
+
+    firePointer(tl, 'pointerup', before[0].x, before[0].y);
+    await flushEffects();
+  });
+
+  it('resets the corners with the r and R keys', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+    const before = handles().map(positionOf);
+
+    await pressKey('ArrowRight');
+    expect(handles().map(positionOf)).not.toEqual(before);
+
+    const reset = await pressKey('r');
+    expect(handles().map(positionOf)).toEqual(before);
+    expect(reset.defaultPrevented).toBe(true);
+
+    await pressKey('ArrowDown');
+    await pressKey('R', { shiftKey: true });
+    expect(handles().map(positionOf)).toEqual(before);
+  });
+
+  it('does not hijack the browser reload shortcut (Cmd/Ctrl+R)', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+    const before = handles().map(positionOf);
+
+    await pressKey('ArrowRight');
+    const moved = handles().map(positionOf);
+    expect(moved).not.toEqual(before);
+
+    const cmdR = await pressKey('r', { metaKey: true });
+    expect(handles().map(positionOf)).toEqual(moved);
+    expect(cmdR.defaultPrevented).toBe(false);
+
+    const ctrlR = await pressKey('R', { ctrlKey: true });
+    expect(handles().map(positionOf)).toEqual(moved);
+    expect(ctrlR.defaultPrevented).toBe(false);
+  });
+
+  it('recovers from a folded quad via keyboard alone', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+    const before = handles().map(positionOf);
+
+    // Fold: push corner 1 right past corner 2 with coarse steps.
+    const stepsOver = Math.ceil((before[1].x - before[0].x) / 50) + 1;
+    for (let i = 0; i < stepsOver; i++) await pressKey('ArrowRight', { shiftKey: true });
+    expect(document.body.textContent).toContain('Corners fold');
+    expect(mounted.onCornersChange.mock.lastCall![1]).toBeNull();
+
+    // Unfold by stepping back left.
+    for (let i = 0; i < stepsOver; i++) await pressKey('ArrowLeft', { shiftKey: true });
+    expect(document.body.textContent).not.toContain('Corners fold');
+    expect(mounted.onCornersChange.mock.lastCall![1]).not.toBeNull();
+  });
+
+  it('removes its key listeners on unmount', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+    await unmount(mounted.component);
+    mounted.target.remove();
+    mounted = null;
+
+    const event = await pressKey('ArrowRight');
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('renders the corner numbers just outside the calibration area', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+
+    const quad = handles().map(positionOf);
+    const labels = cornerLabels();
+    expect(labels.map((l) => l.textContent?.trim())).toEqual(['1', '2', '3', '4']);
+    expectLabelsOutsideWithMargin(labels, quad);
+  });
+
+  it('keeps the corner numbers outside a rotated quad', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+
+    const diamond = await dragIntoDiamond(handles().map(positionOf));
+
+    const labels = cornerLabels();
+    expect(labels).toHaveLength(4);
+    expectLabelsOutsideWithMargin(labels, diamond);
+  });
+});
