@@ -58,6 +58,11 @@
     sourceHeight: number;
   } | null>(null);
 
+  // The instructions-bar choice lives here so it survives step 4's {#key}
+  // remounts and step navigation within one calibration session; Clear or
+  // loading a different dataset starts a new session and brings the bar back.
+  let cornersBarHidden = $state(false);
+
   // Single wrapper keeps storage and $state paired — fewer chances for drift
   // between localStorage and the in-memory calibration.
   function setCalibration(c: Calibration | null) {
@@ -72,6 +77,7 @@
     panX = 0;
     panY = 0;
     pendingCorners = null;
+    cornersBarHidden = false;
   }
 
   function handleLoadDataset(d: { filename: string; geojson: FeatureCollection; style: { color: string }; bounds: Bbox }) {
@@ -123,6 +129,7 @@
     panX = 0;
     panY = 0;
     pendingCorners = null;
+    cornersBarHidden = false;
   }
 
   function handleSetColor(color: string) {
@@ -375,7 +382,15 @@
   <CalibratePan {dataset} {panX} {panY} onPan={setPan} />
 {:else if step === 4 && dataset}
   {#key dataset.uploadedAt}
-    <CalibrateCorners {dataset} {panX} {panY} {seedCorners} onCornersChange={setPendingCorners} />
+    <CalibrateCorners
+      {dataset}
+      {panX}
+      {panY}
+      {seedCorners}
+      onCornersChange={setPendingCorners}
+      barHidden={cornersBarHidden}
+      onBarHiddenChange={(hidden) => (cornersBarHidden = hidden)}
+    />
   {/key}
 {:else if step === 5 && dataset && calibration}
   <CalibrateProjection {dataset} {calibration} />

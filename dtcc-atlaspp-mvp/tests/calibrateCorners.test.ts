@@ -500,6 +500,79 @@ describe('CalibrateCorners keyboard calibration', () => {
     expect(mounted.onCornersChange.mock.lastCall![1]).not.toBeNull();
   });
 
+  it('hides the instructions bar with the hide button and reports it upward', async () => {
+    const onBarHiddenChange = vi.fn();
+    mounted = mountCorners({ onBarHiddenChange });
+    await flushEffects();
+    expect(document.body.textContent).toContain('Drag or select a corner');
+
+    (document.querySelector('[aria-label="Hide instructions"]') as HTMLButtonElement).click();
+    await flushEffects();
+
+    expect(document.body.textContent).not.toContain('Drag or select a corner');
+    expect(onBarHiddenChange).toHaveBeenLastCalledWith(true);
+    expect(document.querySelector('[aria-label="Show instructions"]')).not.toBeNull();
+  });
+
+  it('restores the instructions bar from the show affordance', async () => {
+    const onBarHiddenChange = vi.fn();
+    mounted = mountCorners({ barHidden: true, onBarHiddenChange });
+    await flushEffects();
+    expect(document.body.textContent).not.toContain('Drag or select a corner');
+    // No warning pill while the quad is valid, and the chip reveals the
+    // keyboard shortcut on hover.
+    expect(document.body.textContent).not.toMatch(/Corners|Degenerate/);
+    const chip = document.querySelector('[aria-label="Show instructions"]') as HTMLButtonElement;
+    expect(chip.getAttribute('title')).toContain('H');
+
+    chip.click();
+    await flushEffects();
+
+    expect(document.body.textContent).toContain('Drag or select a corner');
+    expect(onBarHiddenChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('toggles the instructions bar with the h key and reports each change', async () => {
+    const onBarHiddenChange = vi.fn();
+    mounted = mountCorners({ onBarHiddenChange });
+    await flushEffects();
+
+    const hide = await pressKey('h');
+    expect(document.body.textContent).not.toContain('Drag or select a corner');
+    expect(hide.defaultPrevented).toBe(true);
+    expect(onBarHiddenChange).toHaveBeenLastCalledWith(true);
+
+    await pressKey('H', { shiftKey: true });
+    expect(document.body.textContent).toContain('Drag or select a corner');
+    expect(onBarHiddenChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('leaves Cmd/Ctrl+H to the browser', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+
+    const cmdH = await pressKey('h', { metaKey: true });
+    expect(document.body.textContent).toContain('Drag or select a corner');
+    expect(cmdH.defaultPrevented).toBe(false);
+
+    const ctrlH = await pressKey('H', { ctrlKey: true });
+    expect(document.body.textContent).toContain('Drag or select a corner');
+    expect(ctrlH.defaultPrevented).toBe(false);
+  });
+
+  it('keeps the validity warning visible with a reset hint while the bar is hidden', async () => {
+    mounted = mountCorners({ barHidden: true });
+    await flushEffects();
+    const before = handles().map(positionOf);
+
+    const tl = handles()[0];
+    await drag(tl, before[0], { x: before[1].x + 100, y: before[0].y + 300 });
+
+    expect(document.body.textContent).toContain('Corners fold');
+    expect(document.body.textContent).toContain('R resets');
+    expect(document.body.textContent).not.toContain('Drag or select a corner');
+  });
+
   it('removes its key listeners on unmount', async () => {
     mounted = mountCorners();
     await flushEffects();
