@@ -29,8 +29,19 @@ export type Calibration = {
   savedAt: string;
 };
 
+// User-chosen startup snapshot (#8): a full copy of dataset + calibration
+// under its own key, so subsequent loads, Clear, and wizard resets never
+// silently overwrite the chosen default.
+export type StartupDefaults = {
+  version: 1;
+  dataset: Dataset;
+  calibration: Calibration;
+  savedAt: string;
+};
+
 const KEY_DATASET = 'dtcc-atlaspp-mvp.dataset';
 const KEY_CALIBRATION = 'dtcc-atlaspp-mvp.calibration';
+const KEY_STARTUP_DEFAULTS = 'dtcc-atlaspp-mvp.startupDefaults';
 
 // Type guards validate the full shape, not just the version. A half-corrupt
 // blob (valid JSON, right version, missing/wrong-typed fields) is treated as
@@ -191,4 +202,70 @@ export function saveCalibration(c: Calibration): void {
 
 export function clearCalibration(): void {
   localStorage.removeItem(KEY_CALIBRATION);
+}
+
+export function loadStartupDefaults(): StartupDefaults | null {
+  const raw = localStorage.getItem(KEY_STARTUP_DEFAULTS);
+  if (raw == null) return null;
+  try {
+    const v = JSON.parse(raw);
+    if (!isRecord(v) || v.version !== 1 || typeof v.savedAt !== 'string') return null;
+    // parseDataset also migrates an embedded older dataset shape, mirroring
+    // loadDataset's behavior for the live key.
+    const dataset = parseDataset(v.dataset);
+    if (!dataset || !isCalibration(v.calibration)) return null;
+    return { version: 1, dataset, calibration: v.calibration, savedAt: v.savedAt };
+  } catch {
+    return null;
+  }
+}
+
+export function saveStartupDefaults(d: StartupDefaults): void {
+  save(KEY_STARTUP_DEFAULTS, d);
+}
+
+export function clearStartupDefaults(): void {
+  localStorage.removeItem(KEY_STARTUP_DEFAULTS);
+}
+
+export type StartupState = {
+  dataset: Dataset | null;
+  calibration: Calibration | null;
+  step: 1 | 5;
+  fromDefaults: boolean;
+};
+
+// Soft startup precedence (#8/#9): a complete last session resumes the
+// projection; an in-progress session (dataset without calibration) continues
+// the wizard rather than being clobbered by defaults; saved defaults fill in
+// when no last-session dataset exists; otherwise the calibration wizard.
+export function resolveStartup(
+  lastDataset: Dataset | null,
+  lastCalibration: Calibration | null,
+  defaults: StartupDefaults | null,
+): StartupState {
+  if (lastDataset && lastCalibration) {
+    return { dataset: lastDataset, calibration: lastCalibration, step: 5, fromDefaults: false };
+  }
+  if (lastDataset) {
+    return { dataset: lastDataset, calibration: lastCalibration, step: 1, fromDefaults: false };
+  }
+  if (defaults) {
+    return { dataset: defaults.dataset, calibration: defaults.calibration, step: 5, fromDefaults: true };
+  }
+  return { dataset: lastDataset, calibration: lastCalibration, step: 1, fromDefaults: false };
+}
+
+// Boot entry point: resolves the startup state and, when defaults filled the
+// gap, materializes them into the live keys. A defaults boot is then
+// indistinguishable from a resumed session, so later partial writes (color
+// change, sample re-select, re-calibration) keep storage and app state
+// paired instead of stranding a half-persisted session.
+export function initStartup(): StartupState {
+  const resolved = resolveStartup(loadDataset(), loadCalibration(), loadStartupDefaults());
+  if (resolved.fromDefaults && resolved.dataset && resolved.calibration) {
+    saveDataset(resolved.dataset);
+    saveCalibration(resolved.calibration);
+  }
+  return resolved;
 }

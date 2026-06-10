@@ -261,3 +261,61 @@ describe('ControlPanel dataset source tabs', () => {
     expect(onlineSelect.disabled).toBe(false);
   });
 });
+
+describe('ControlPanel startup default button', () => {
+  let mounted: ReturnType<typeof mountPanel> | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    localStorage.clear();
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(catalog))),
+    );
+  });
+
+  afterEach(async () => {
+    if (mounted) {
+      await unmount(mounted.component);
+      mounted.target.remove();
+      mounted = null;
+    }
+    vi.unstubAllGlobals();
+  });
+
+  function defaultButton(): HTMLButtonElement | undefined {
+    return Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+      (b) => b.textContent?.trim() === 'Set startup default',
+    );
+  }
+
+  it('renders the button disabled while saving a default is unavailable', async () => {
+    mounted = mountPanel({ onSaveDefault: vi.fn(), canSaveDefault: false });
+    await flushEffects();
+
+    const button = defaultButton();
+    expect(button).toBeDefined();
+    expect(button!.disabled).toBe(true);
+  });
+
+  it('invokes onSaveDefault when enabled and clicked', async () => {
+    const onSaveDefault = vi.fn();
+    mounted = mountPanel({ onSaveDefault, canSaveDefault: true });
+    await flushEffects();
+
+    const button = defaultButton()!;
+    expect(button.disabled).toBe(false);
+    button.click();
+    await flushEffects();
+
+    expect(onSaveDefault).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the button when no handler is provided', async () => {
+    mounted = mountPanel();
+    await flushEffects();
+
+    expect(defaultButton()).toBeUndefined();
+  });
+});
