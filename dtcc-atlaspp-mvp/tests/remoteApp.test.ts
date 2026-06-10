@@ -64,7 +64,7 @@ describe('RemoteApp', () => {
   it('pairs with a PIN and posts a Next command', async () => {
     component = mount(RemoteApp, { target });
     const input = document.querySelector<HTMLInputElement>('#remote-pin')!;
-    input.value = '123456';
+    input.value = '123';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
 
@@ -99,7 +99,7 @@ describe('RemoteApp', () => {
 
     component = mount(RemoteApp, { target });
     const input = document.querySelector<HTMLInputElement>('#remote-pin')!;
-    input.value = '123456';
+    input.value = '123';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
 
@@ -118,7 +118,7 @@ describe('RemoteApp', () => {
 
     component = mount(RemoteApp, { target });
     const input = document.querySelector<HTMLInputElement>('#remote-pin')!;
-    input.value = '000000';
+    input.value = '000';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
 
@@ -146,7 +146,7 @@ describe('RemoteApp', () => {
 
     component = mount(RemoteApp, { target });
     const input = document.querySelector<HTMLInputElement>('#remote-pin')!;
-    input.value = '123456';
+    input.value = '123';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector<HTMLButtonElement>('button[type="submit"]')!.click();
 

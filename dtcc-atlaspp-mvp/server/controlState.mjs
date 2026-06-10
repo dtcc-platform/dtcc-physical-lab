@@ -1,6 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 
 const PIN_TTL_MS = 10 * 60 * 1000;
+// With a 3-digit keyspace (1000 PINs) the global failure cap is the only
+// bound on multi-IP guessing: 10 attempts ≈ 1% success per pairing window.
+const PIN_KILL_FAILURES = 10;
 const REMOTE_IDLE_MS = 30 * 60 * 1000;
 const PROJECTOR_ONLINE_MS = 3000;
 const LIVE_REPLACE_BLOCK_MS = 5000;
@@ -15,8 +18,10 @@ function err(status, error, extra = {}) {
   return { ok: false, status, error, ...extra };
 }
 
+// crypto-quality randomness: with only 1000 combinations, a predictable PRNG
+// would matter far more than it did at 6 digits.
 function defaultRandomDigits() {
-  return String(Math.floor(Math.random() * 1000000)).padStart(6, '0');
+  return String(randomInt(0, 1000)).padStart(3, '0');
 }
 
 function defaultRandomToken() {
@@ -206,7 +211,9 @@ export function createControlState(options = {}) {
       failedPinAttempts += 1;
       if (attempt.count >= 5) attempt.blockedUntil = now() + 30000;
       attemptsByIp.set(ip, attempt);
-      if (failedPinAttempts >= 20) projector.pinExpiresAt = 0;
+      // -1 keeps the strict `now() > pinExpiresAt` comparison true even at
+      // clock value 0 (a 0 sentinel would be inert at exactly epoch).
+      if (failedPinAttempts >= PIN_KILL_FAILURES) projector.pinExpiresAt = -1;
       return err(401, 'invalid or expired PIN');
     }
     if (remote) return err(409, 'remote already paired');

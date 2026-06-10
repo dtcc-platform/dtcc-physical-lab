@@ -23,7 +23,7 @@ function deterministicControl({ nowRef = { value: 0 } } = {}) {
   let token = 0;
   return createControlState({
     now: () => nowRef.value,
-    randomDigits: () => '123456',
+    randomDigits: () => '123',
     randomToken: () => `token-${++token}`,
     remoteUrl: 'http://127.0.0.1:5175/remote',
   });
@@ -33,12 +33,12 @@ describe('controlState', () => {
   it('registers a projector and pairs one remote by PIN', () => {
     const control = deterministicControl();
     const registered = control.registerProjector({});
-    const paired = control.pairRemote({ pin: '123456', ip: '127.0.0.1' });
+    const paired = control.pairRemote({ pin: '123', ip: '127.0.0.1' });
 
     expect(registered).toEqual(expect.objectContaining({
       projectorSessionId: 'token-1',
       projectorToken: 'token-2',
-      pin: '123456',
+      pin: '123',
       remoteUrl: 'http://127.0.0.1:5175/remote',
     }));
     expect(paired).toEqual({ ok: true, value: { remoteToken: 'token-3' } });
@@ -50,12 +50,46 @@ describe('controlState', () => {
     control.registerProjector({});
 
     for (let i = 0; i < 5; i += 1) {
-      expect(control.pairRemote({ pin: '000000', ip: '127.0.0.1' }).status).toBe(401);
+      expect(control.pairRemote({ pin: '000', ip: '127.0.0.1' }).status).toBe(401);
     }
-    expect(control.pairRemote({ pin: '123456', ip: '127.0.0.1' }).status).toBe(429);
+    expect(control.pairRemote({ pin: '123', ip: '127.0.0.1' }).status).toBe(429);
 
     nowRef.value = 30001;
-    expect(control.pairRemote({ pin: '123456', ip: '127.0.0.1' }).ok).toBe(true);
+    expect(control.pairRemote({ pin: '123', ip: '127.0.0.1' }).ok).toBe(true);
+  });
+
+  it('generates a 3-digit PIN by default', () => {
+    // Repeated samples so a missing padStart (e.g. PIN '7') cannot slip
+    // through on a lucky three-digit draw.
+    for (let i = 0; i < 50; i += 1) {
+      const control = createControlState({ remoteUrl: 'http://127.0.0.1:5175/remote' });
+      expect(control.registerProjector({}).pin).toMatch(/^\d{3}$/);
+    }
+  });
+
+  it('keeps the PIN alive through 9 failed attempts across all IPs', () => {
+    const control = deterministicControl();
+    control.registerProjector({});
+
+    for (let i = 0; i < 9; i += 1) {
+      expect(control.pairRemote({ pin: '000', ip: `10.0.0.${i}` }).status).toBe(401);
+    }
+
+    expect(control.pairRemote({ pin: '123', ip: '10.0.1.1' }).ok).toBe(true);
+  });
+
+  it('kills the PIN after 10 failed attempts across all IPs', () => {
+    const control = deterministicControl();
+    control.registerProjector({});
+
+    // Spread attempts over IPs so the per-IP limiter never trips; only the
+    // global counter should kill the PIN. The kill must hold without any
+    // clock movement (the test clock sits at epoch 0).
+    for (let i = 0; i < 10; i += 1) {
+      expect(control.pairRemote({ pin: '000', ip: `10.0.0.${i}` }).status).toBe(401);
+    }
+
+    expect(control.pairRemote({ pin: '123', ip: '10.0.1.1' }).status).toBe(401);
   });
 
   it('rejects stale state revisions with current revision details', () => {
@@ -90,7 +124,7 @@ describe('controlState', () => {
   it('deduplicates retried commands and prunes acknowledged commands', () => {
     const control = deterministicControl();
     const registered = control.registerProjector({});
-    const paired = control.pairRemote({ pin: '123456', ip: '127.0.0.1' });
+    const paired = control.pairRemote({ pin: '123', ip: '127.0.0.1' });
     if (!paired.ok) throw new Error('pair failed');
 
     const first = control.enqueueCommand({ token: paired.value.remoteToken, command: { clientCommandId: 'cmd-1', type: 'next' } });
@@ -104,7 +138,7 @@ describe('controlState', () => {
   it('rejects malformed commands before they reach the projector queue', () => {
     const control = deterministicControl();
     const registered = control.registerProjector({});
-    const paired = control.pairRemote({ pin: '123456', ip: '127.0.0.1' });
+    const paired = control.pairRemote({ pin: '123', ip: '127.0.0.1' });
     if (!paired.ok) throw new Error('pair failed');
 
     const result = control.enqueueCommand({
@@ -121,7 +155,7 @@ describe('controlState', () => {
     const nowRef = { value: 0 };
     const control = deterministicControl({ nowRef });
     const registered = control.registerProjector({});
-    const paired = control.pairRemote({ pin: '123456', ip: '127.0.0.1' });
+    const paired = control.pairRemote({ pin: '123', ip: '127.0.0.1' });
     if (!paired.ok) throw new Error('pair failed');
 
     const first = control.enqueueCommand({ token: paired.value.remoteToken, command: { clientCommandId: 'cmd-ttl', type: 'next' } });
@@ -139,13 +173,13 @@ describe('controlState', () => {
   it('checks invalid PIN attempts even when a remote is already paired', () => {
     const control = deterministicControl();
     control.registerProjector({});
-    expect(control.pairRemote({ pin: '123456', ip: '127.0.0.1' }).ok).toBe(true);
+    expect(control.pairRemote({ pin: '123', ip: '127.0.0.1' }).ok).toBe(true);
 
-    const invalid = control.pairRemote({ pin: '000000', ip: '127.0.0.2' });
+    const invalid = control.pairRemote({ pin: '000', ip: '127.0.0.2' });
     expect(invalid.ok).toBe(false);
     if (!invalid.ok) expect(invalid.status).toBe(401);
 
-    const duplicate = control.pairRemote({ pin: '123456', ip: '127.0.0.2' });
+    const duplicate = control.pairRemote({ pin: '123', ip: '127.0.0.2' });
     expect(duplicate.ok).toBe(false);
     if (!duplicate.ok) expect(duplicate.status).toBe(409);
   });
@@ -166,7 +200,7 @@ describe('controlState', () => {
   it('invalidates old remote tokens after projector re-registers', () => {
     const control = deterministicControl();
     const registered = control.registerProjector({});
-    const paired = control.pairRemote({ pin: '123456', ip: '127.0.0.1' });
+    const paired = control.pairRemote({ pin: '123', ip: '127.0.0.1' });
     if (!paired.ok) throw new Error('pair failed');
 
     control.publishState({ token: registered.projectorToken, state: state(1) });
