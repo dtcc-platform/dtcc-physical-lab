@@ -57,6 +57,42 @@ export function toMatrix3d(h: number[]): string {
   return `matrix3d(${h[0]}, ${h[3]}, 0, ${h[6]}, ${h[1]}, ${h[4]}, 0, ${h[7]}, 0, 0, 1, 0, ${h[2]}, ${h[5]}, 0, ${h[8]})`;
 }
 
+// A self-intersecting (bow-tie) or collapsed quad still solves to a finite,
+// non-singular homography, but the projection folds over itself. Convexity is
+// checked by requiring the cross products of consecutive edges to share one
+// sign (either winding); a zero cross product means collinear corners, which
+// is rejected too.
+export function isConvexQuad(quad: Pair[]): boolean {
+  if (quad.length !== 4) return false;
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const [ax, ay] = quad[i];
+    const [bx, by] = quad[(i + 1) % 4];
+    const [cx, cy] = quad[(i + 2) % 4];
+    const cross = (bx - ax) * (cy - by) - (by - ay) * (cx - bx);
+    if (Math.abs(cross) < 1e-9) return false;
+    const s = Math.sign(cross);
+    if (sign === 0) sign = s;
+    else if (s !== sign) return false;
+  }
+  return true;
+}
+
+// A convex quad with reversed winding can only arise from a reflection: for
+// the TL,TR,BR,BL corner order in screen coordinates the shoelace signed area
+// is positive, so a negative sign means the corners were swapped and the
+// projection would come out mirror-imaged. Only meaningful for convex quads.
+export function isMirroredQuad(quad: Pair[]): boolean {
+  if (quad.length !== 4) return false;
+  let area2 = 0;
+  for (let i = 0; i < 4; i++) {
+    const [ax, ay] = quad[i];
+    const [bx, by] = quad[(i + 1) % 4];
+    area2 += ax * by - bx * ay;
+  }
+  return area2 < 0;
+}
+
 // Degenerate when the 3×3 matrix is near-singular: dragging two handles to the
 // same point or making three collinear collapses the perspective transform.
 export function isDegenerate(h: number[]): boolean {
