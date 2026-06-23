@@ -19,7 +19,9 @@ export default defineConfig({
   ],
   server: {
     port: 5175,
-    open: true,
+    // The projector launcher (`npm run dev:projector`) sets ATLAS_NO_OPEN=1 so it
+    // can open its own chrome-free window instead of the default browser tab.
+    open: process.env.ATLAS_NO_OPEN !== '1',
     strictPort: true,
     proxy: {
       '/api': 'http://127.0.0.1:5176',

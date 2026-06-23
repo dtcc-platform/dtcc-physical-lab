@@ -7,4 +7,8 @@ if [ ! -d node_modules ]; then
   npm install
 fi
 
+if [[ "$(uname)" == "Darwin" ]]; then
+  echo "Note: for the chrome-free projector display, run ./run-projector.sh instead." >&2
+fi
+
 npm run dev
