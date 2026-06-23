@@ -10,14 +10,43 @@ Standalone web app that projects EPSG:3006 (SWEREF99 TM) GeoJSONs onto a 3 m × 
 
 ```bash
 npm install
-npm run dev      # Vite on 5175 plus control API on 5176
-npm run dev:vite # Vite-only server on http://localhost:5175
-npm run build   # static site in dist/
-npm run preview # serve the built dist/
-npm test        # vitest unit tests
+npm run dev:projector # operator/projector path: chrome-free fullscreen Chrome window (macOS)
+npm run dev          # Vite on 5175 plus control API on 5176 in a normal browser
+npm run dev:vite     # Vite-only server on http://localhost:5175
+npm run build        # static site in dist/
+npm run preview      # serve the built dist/
+npm test             # vitest unit tests
 ```
 
 Deploy `dist/` under a **local HTTP server** (`caddy file-server`, `python -m http.server`, `npx vite preview`). `file://` is not supported.
+
+## Projector display
+
+On the Mac wired to the projector, launch the chrome-free view in one command:
+
+```bash
+./run-projector.sh    # from the repo root
+# or, from this folder:
+npm run dev:projector
+```
+
+This starts the dev servers and opens `http://localhost:5175/projector` in a
+dedicated Chrome window in app mode (no address bar or tabs) at full screen, so
+the whole projection surface is usable. Exit fullscreen with `Ctrl`+`Cmd`+`F`;
+quit the window with `Cmd`+`Q`. Stopping the launcher (`Ctrl`+`C`) also closes
+the projector window, so rerunning the command always gives a fresh one.
+
+The projector window uses a dedicated Chrome profile (`~/.dtcc-atlaspp-projector`)
+so its flags are honored even when Chrome is already running, and its saved
+calibration persists across restarts. Calibrate once in this window; that
+calibration is separate from your normal Chrome profile.
+
+A calibration saved in this profile is not visible from the fallback path, which
+uses your normal browser profile and keeps its own calibration.
+
+Fallback (no Chrome, or non-macOS): run `npm run dev`, open
+`http://localhost:5175/projector`, then enter fullscreen: macOS Chrome uses
+`Ctrl`+`Cmd`+`F`; other browsers commonly use `F11`.
 
 ## Operator remote
 
@@ -26,10 +55,11 @@ The operator remote is a LAN-only browser page for a second device such as an iP
 Dev mode:
 
 ```bash
-npm run dev
+./run-projector.sh
 ```
 
-Open the projector page on the Mac:
+This starts the projector and servers with the chrome-free launcher. Reference
+projector URL, opened automatically by the launcher:
 
 ```text
 http://localhost:5175/projector
@@ -54,7 +84,7 @@ Use the 3-digit PIN shown on the projector to pair the iPad. After server restar
 
 ## Calibration flow
 
-1. Open the app on the machine wired to the projector. F11 to fullscreen.
+1. On the machine wired to the projector, launch the chrome-free view with `./run-projector.sh` (see [Projector display](#projector-display)). Fallback: open the app and enter fullscreen with `Ctrl`+`Cmd`+`F` in macOS Chrome or `F11` in other browsers.
 2. On first run, the app opens directly in bbox-framing mode. Pan/zoom the map to match the geographic extent of the printed model. Press **Lock bbox**.
 3. The test-pattern view appears. Drag the four orange corner handles onto the physical corners of the printed model. The yellow grid will warp live. Press **Save calibration**.
 4. Drop an EPSG:3006 (SWEREF99 TM) `.geojson` file onto the control panel in the bottom-right. It renders onto the model. Use the color picker and basemap toggle to taste. Press **c** to re-run calibration.
