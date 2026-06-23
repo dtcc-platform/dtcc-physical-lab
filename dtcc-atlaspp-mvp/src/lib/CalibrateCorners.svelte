@@ -404,35 +404,45 @@
   {/each}
 
   {#if !hideBar}
-    <div class="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 text-dtcc-dark px-4 py-2 rounded-lg shadow-lg flex items-center gap-3">
+    <!-- Docked top-left (issue #21): top-center overlapped the grid's top edge
+         and the two top corner handles. A capped width with a wrapping button
+         row keeps the box tucked in the corner instead of spanning the top
+         edge. The H / × toggle stays the escape hatch for the rare case a
+         corner dragged to the top-left still reaches it. -->
+    <div class="absolute top-4 left-4 max-w-xs bg-white/90 text-dtcc-dark px-4 py-2 rounded-lg shadow-lg flex flex-col items-start gap-2">
       <span class="text-sm">
         Drag or select a corner (Tab / 1–4), arrows move it (Shift coarse, ⌥ fine), R resets, H hides.
       </span>
-      <button class="px-3 py-1 text-xs rounded bg-dtcc-gray-light" onclick={reset}>Reset corners</button>
-      {#if warning}
-        <span class="text-xs text-dtcc-red">{warning}</span>
-      {/if}
-      <button
-        class="px-2 py-1 text-xs rounded bg-dtcc-gray-light"
-        onclick={toggleBar}
-        aria-label="Hide instructions"
-      >×</button>
+      <div class="flex flex-wrap items-center gap-2">
+        <button class="px-3 py-1 text-xs rounded bg-dtcc-gray-light" onclick={reset}>Reset corners</button>
+        {#if warning}
+          <span class="text-xs text-dtcc-red">{warning}</span>
+        {/if}
+        <button
+          class="px-2 py-1 text-xs rounded bg-dtcc-gray-light"
+          onclick={toggleBar}
+          aria-label="Hide instructions"
+        >×</button>
+      </div>
     </div>
   {:else}
-    <!-- Low-contrast recovery chip so the bar can be brought back; the
-         validity warning stays standalone — hiding the bar must never hide
-         the reason Next is disabled. -->
-    <button
-      class="absolute top-4 right-4 w-7 h-7 rounded-full bg-white/20 text-white/70 text-sm"
-      onclick={toggleBar}
-      aria-label="Show instructions"
-      title="Show instructions (H)"
-    >?</button>
-    {#if warning}
-      <div class="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-2">
-        <span class="text-xs text-dtcc-red">{warning}</span>
-        <span class="text-xs text-dtcc-muted">R resets</span>
-      </div>
-    {/if}
+    <!-- Recovery chip + standalone validity warning, stacked in the same
+         top-left area so they never overlap each other. The warning stays
+         visible while the bar is hidden — hiding the bar must never hide the
+         reason Next is disabled. -->
+    <div class="absolute top-4 left-4 flex flex-col items-start gap-2">
+      <button
+        class="w-7 h-7 rounded-full bg-white/20 text-white/70 text-sm"
+        onclick={toggleBar}
+        aria-label="Show instructions"
+        title="Show instructions (H)"
+      >?</button>
+      {#if warning}
+        <div class="bg-white/90 px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-2">
+          <span class="text-xs text-dtcc-red">{warning}</span>
+          <span class="text-xs text-dtcc-muted">R resets</span>
+        </div>
+      {/if}
+    </div>
   {/if}
 </div>
