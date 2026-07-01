@@ -30,6 +30,39 @@ const smokeStreamlinesManifest = {
   visualization: { profile: 'table', width: 1920, height: 1920 },
 };
 
+const smokeSliceManifestV2 = {
+  schema_version: 'dtcc-dataset-manifest-v2',
+  identity: { name: 'smoke', title: 'Smoke Slice' },
+  metadata: { description: 'Synthetic analytical velocity-field simulation.' },
+  provenance: {},
+  presentation: { summary: 'A projected smoke slice.', view_hints: { profile: 'table', width: 320, height: 180 } },
+  request: { dataset_name: 'smoke', parameters: { product: 'slice' }, bounds: [0, 0, 10, 20] },
+  artifacts: [
+    {
+      path: 'artifacts/smoke_slice.vtu',
+      role: 'primary',
+      format: 'vtu',
+      media_type: 'application/vnd.vtk.vtu+xml',
+      data_kind: 'mesh',
+    },
+    {
+      path: 'artifacts/smoke_slice.png',
+      role: 'primary',
+      format: 'png',
+      media_type: 'image/png',
+      data_kind: 'raster',
+      bounds: [1, 2, 3, 4],
+    },
+    {
+      path: 'artifacts/smoke_slice.geojson',
+      role: 'auxiliary',
+      format: 'geojson',
+      media_type: 'application/geo+json',
+      data_kind: 'vector',
+    },
+  ],
+};
+
 describe('dtcc manifest input helpers', () => {
   it('parses a dtcc-core PNG manifest for direct wizard loading', () => {
     const result = parseDtccManifestText(
@@ -80,8 +113,40 @@ describe('dtcc manifest input helpers', () => {
     expect(findManifestArtifact([wrongArtifact, artifact], manifest.value, manifestFile)).toBe(artifact);
   });
 
+  it('parses Dataset Manifest v2 artifacts and chooses a displayable primary image', () => {
+    const result = parseDtccManifestText('manifest.json', JSON.stringify(smokeSliceManifestV2));
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        file: 'artifacts/smoke_slice.png',
+        artifactName: 'smoke_slice.png',
+        title: 'Smoke Slice',
+        description: 'Synthetic analytical velocity-field simulation.',
+        bounds: [1, 2, 3, 4],
+        kind: 'image',
+        format: 'png',
+        mediaType: 'image/png',
+        visualization: { profile: 'table', width: 320, height: 180 },
+      },
+    });
+  });
+
+  it('matches Dataset Manifest v2 package folders by artifact path', () => {
+    const manifest = parseDtccManifestText('exports/smoke/manifest.json', JSON.stringify(smokeSliceManifestV2));
+    expect(manifest.ok).toBe(true);
+    if (!manifest.ok) return;
+
+    const manifestFile = folderFile('exports/smoke/manifest.json', JSON.stringify(smokeSliceManifestV2));
+    const wrongArtifact = folderFile('exports/other/artifacts/smoke_slice.png', 'png', 'image/png');
+    const artifact = folderFile('exports/smoke/artifacts/smoke_slice.png', 'png', 'image/png');
+
+    expect(findManifestArtifact([wrongArtifact, artifact], manifest.value, manifestFile)).toBe(artifact);
+  });
+
   it('identifies dtcc-core manifest files by sidecar suffix', () => {
     expect(isDtccManifestFile(file('smoke_streamlines.manifest.json', '{}'))).toBe(true);
+    expect(isDtccManifestFile(file('manifest.json', '{}'))).toBe(true);
     expect(isDtccManifestFile(file('plain.geojson', '{}'))).toBe(false);
   });
 
@@ -173,6 +238,28 @@ describe('dtcc manifest input helpers', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toMatch(errorPattern);
+  });
+
+  it('rejects Dataset Manifest v2 packages without displayable artifacts', () => {
+    const result = parseDtccManifestText(
+      'manifest.json',
+      JSON.stringify({
+        ...smokeSliceManifestV2,
+        artifacts: [
+          {
+            path: 'artifacts/smoke_slice.vtu',
+            role: 'primary',
+            format: 'vtu',
+            media_type: 'application/vnd.vtk.vtu+xml',
+            data_kind: 'mesh',
+          },
+        ],
+      })
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/no displayable/);
   });
 
   it('rejects malformed visualization metadata', () => {
