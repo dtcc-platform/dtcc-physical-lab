@@ -29,6 +29,15 @@ export type DtccManifestFileSelection = {
   manifestPath?: string;
 };
 
+const MANIFEST_V2_SCHEMA_VERSION = 'dtcc-dataset-manifest-v2';
+type ManifestKind = Pick<DtccManifest, 'kind' | 'format' | 'mediaType'>;
+type DisplayCandidate = {
+  artifact: Record<string, unknown> & { path: string };
+  kind: ManifestKind;
+  rank: number;
+  index: number;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -43,7 +52,7 @@ function isSafeRelativeFile(file: string): boolean {
   if (file.startsWith('/')) return false;
   if (/^[A-Za-z]:/.test(file)) return false;
   if (file.includes('://')) return false;
-  return !file.split('/').some((part) => part.length === 0 || part === '..');
+  return !file.split('/').some((part) => part.length === 0 || part === '.' || part === '..' || part.startsWith('.'));
 }
 
 function basename(file: string): string {
@@ -133,7 +142,8 @@ function kindForManifest(manifest: Record<string, unknown>): ManifestInputResult
 }
 
 export function isDtccManifestFile(file: File): boolean {
-  return file.name.toLowerCase().endsWith('.manifest.json');
+  const name = file.name.toLowerCase();
+  return name.endsWith('.manifest.json') || name === 'manifest.json';
 }
 
 export function parseDtccManifestText(manifestPath: string, text: string): ManifestInputResult<DtccManifest> {
@@ -144,6 +154,12 @@ export function parseDtccManifestText(manifestPath: string, text: string): Manif
     return { ok: false, error: `JSON parse error: ${(err as Error).message}` };
   }
   if (!isRecord(parsed)) return { ok: false, error: `${manifestPath} must contain a JSON object` };
+  if (parsed.schema_version === MANIFEST_V2_SCHEMA_VERSION) {
+    return parseDatasetManifestV2(manifestPath, parsed);
+  }
+  if (parsed.schema_version !== undefined || parsed.artifacts !== undefined || parsed.identity !== undefined) {
+    return { ok: false, error: `${manifestPath} Dataset Manifest v2 must declare schema_version ${MANIFEST_V2_SCHEMA_VERSION}` };
+  }
   if (typeof parsed.file !== 'string' || !isSafeRelativeFile(parsed.file)) {
     return { ok: false, error: `${manifestPath} file must be relative to the manifest directory` };
   }
@@ -174,6 +190,89 @@ export function parseDtccManifestText(manifestPath: string, text: string): Manif
       ...(parsed.description !== undefined ? { description: parsed.description } : {}),
       bounds: parsed.bounds,
       ...manifestKind.value,
+      ...(visualization.value !== undefined ? { visualization: visualization.value } : {}),
+    },
+  };
+}
+
+function parseDatasetManifestV2(manifestPath: string, manifest: Record<string, unknown>): ManifestInputResult<DtccManifest> {
+  const artifacts = manifest.artifacts;
+  if (!Array.isArray(artifacts) || artifacts.length === 0) {
+    return { ok: false, error: `${manifestPath} Dataset Manifest v2 must include non-empty artifacts` };
+  }
+
+  const candidates: DisplayCandidate[] = [];
+  for (let i = 0; i < artifacts.length; i += 1) {
+    const artifact = artifacts[i];
+    if (!isRecord(artifact)) return { ok: false, error: `${manifestPath} artifact ${i} must be an object` };
+    if (typeof artifact.path !== 'string' || !isSafeRelativeFile(artifact.path)) {
+      return { ok: false, error: `${manifestPath} artifact ${i} path must be relative to the package root` };
+    }
+    const artifactPath = artifact.path;
+    for (const key of ['role', 'format', 'media_type', 'data_kind'] as const) {
+      if (typeof artifact[key] !== 'string' || artifact[key].trim().length === 0) {
+        return { ok: false, error: `${manifestPath} artifact ${i} must include ${key}` };
+      }
+    }
+
+    const kind = kindForManifest(artifact);
+    if (!kind.ok) continue;
+    const role = typeof artifact.role === 'string' ? artifact.role.trim() : '';
+    const primary = role === 'primary';
+    const rank =
+      kind.value.kind === 'image'
+        ? primary
+          ? 0
+          : 3
+        : kind.value.kind === 'video'
+          ? primary
+            ? 1
+            : 4
+          : primary
+            ? 2
+            : 5;
+    candidates.push({ artifact: { ...artifact, path: artifactPath }, kind: kind.value, rank, index: i });
+  }
+
+  if (candidates.length === 0) {
+    return { ok: false, error: `${manifestPath} Dataset Manifest v2 has no displayable image/png, video/mp4, or GeoJSON artifact` };
+  }
+
+  candidates.sort((a, b) => a.rank - b.rank || a.index - b.index);
+  const selected = candidates[0];
+  const request = isRecord(manifest.request) ? manifest.request : {};
+  const identity = isRecord(manifest.identity) ? manifest.identity : {};
+  const metadata = isRecord(manifest.metadata) ? manifest.metadata : {};
+  const presentation = isRecord(manifest.presentation) ? manifest.presentation : {};
+  const bounds = isBbox(selected.artifact.bounds) ? selected.artifact.bounds : isBbox(request.bounds) ? request.bounds : null;
+  if (!bounds) return { ok: false, error: `${manifestPath} Dataset Manifest v2 selected artifact has no four-number bounds` };
+
+  const title =
+    typeof identity.title === 'string' && identity.title.trim().length > 0
+      ? identity.title.trim()
+      : typeof presentation.headline === 'string' && presentation.headline.trim().length > 0
+        ? presentation.headline.trim()
+        : typeof identity.name === 'string' && identity.name.trim().length > 0
+          ? titleFromId(slugify(identity.name))
+          : titleFromId(slugify(basename(selected.artifact.path)));
+  const description =
+    typeof metadata.description === 'string' && metadata.description.trim().length > 0
+      ? metadata.description
+      : typeof presentation.summary === 'string' && presentation.summary.trim().length > 0
+        ? presentation.summary
+        : undefined;
+  const visualization = parseVisualizationMetadata(presentation.view_hints, manifestPath);
+  if (!visualization.ok) return visualization;
+
+  return {
+    ok: true,
+    value: {
+      file: selected.artifact.path,
+      artifactName: basename(selected.artifact.path),
+      title,
+      ...(description !== undefined ? { description } : {}),
+      bounds,
+      ...selected.kind,
       ...(visualization.value !== undefined ? { visualization: visualization.value } : {}),
     },
   };
