@@ -58,6 +58,17 @@
   type Corner = { x: number; y: number };
   type CornerQuad = [Corner, Corner, Corner, Corner];
 
+  // Canonical physical-domain vertex order (issue #22): user-facing numbers
+  // start at the lower-left and go counter-clockwise — 1 lower-left,
+  // 2 lower-right, 3 upper-right, 4 upper-left. The internal `corners` array
+  // stays in screen order (TL, TR, BR, BL) so the homography, src corners, and
+  // saved calibrations are untouched; only the displayed number, the handle's
+  // accessible name, and the 1–4 selection shortcut are remapped.
+  //   CANONICAL_TO_INTERNAL[n-1] → internal index of canonical corner n.
+  //   INTERNAL_TO_CANONICAL[i]   → canonical number shown at internal corner i.
+  const CANONICAL_TO_INTERNAL = [3, 2, 1, 0] as const;
+  const INTERNAL_TO_CANONICAL = [4, 3, 2, 1] as const;
+
   // Initialize handles at the square's 4 corners (TL, TR, BR, BL) at mount
   // time, using window dimensions directly so the initializer doesn't depend
   // on the reactive `square` derived.
@@ -110,7 +121,7 @@
   }
   // Keyboard target: exactly one corner is always selected so the arrow keys
   // have something to move; grabbing a handle with the pointer re-selects it.
-  let selectedIndex = $state(0);
+  let selectedIndex = $state(CANONICAL_TO_INTERNAL[0]);
 
   // Square corners in screen space — the homography src.
   const srcCorners = $derived.by(() => [
@@ -229,6 +240,7 @@
       corners = next;
     };
     const select = (i: number) => (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey) return;
       e.preventDefault();
       selectedIndex = i;
     };
@@ -250,10 +262,10 @@
       onKey('ArrowRight', nudge(1, 0)),
       onKey('ArrowUp', nudge(0, -1)),
       onKey('ArrowDown', nudge(0, 1)),
-      onKey('1', select(0)),
-      onKey('2', select(1)),
-      onKey('3', select(2)),
-      onKey('4', select(3)),
+      onKey('1', select(CANONICAL_TO_INTERNAL[0])),
+      onKey('2', select(CANONICAL_TO_INTERNAL[1])),
+      onKey('3', select(CANONICAL_TO_INTERNAL[2])),
+      onKey('4', select(CANONICAL_TO_INTERNAL[3])),
       onKey('r', resetKey),
       onKey('R', resetKey),
       onKey('h', toggleBarKey),
@@ -371,7 +383,8 @@
        handleRotation), so the whole indicator stays inside the calibration
        area (and on the physical model surface) instead of straddling the
        corner. z-10 keeps handles grabbable above the help bar. -->
-  {#each corners as c, i (i)}
+  {#each CANONICAL_TO_INTERNAL as i (i)}
+    {@const c = corners[i]}
     <button
       class="absolute z-10 w-6 h-6 bg-dtcc-orange border-2 cursor-move {selectedIndex === i
         ? 'border-dtcc-yellow ring-2 ring-dtcc-yellow'
@@ -382,7 +395,7 @@
       onpointerup={endDrag}
       onpointercancel={endDrag}
       onfocus={() => (selectedIndex = i)}
-      aria-label={`Calibration corner ${i + 1}`}
+      aria-label={`Calibration corner ${INTERNAL_TO_CANONICAL[i]}`}
       aria-pressed={selectedIndex === i}
     ></button>
   {/each}
@@ -390,7 +403,8 @@
   <!-- Number labels for the 1–4 keyboard shortcuts, outside the quad so they
        land on the table, not the model. Decorative for screen readers — the
        handles above carry the accessible names. -->
-  {#each corners as c, i (i)}
+  {#each CANONICAL_TO_INTERNAL as i (i)}
+    {@const c = corners[i]}
     {@const pos = labelPos(c)}
     <span
       class="absolute -translate-x-1/2 -translate-y-1/2 text-sm font-bold select-none pointer-events-none {selectedIndex ===
@@ -398,9 +412,9 @@
         ? 'text-dtcc-yellow'
         : 'text-white/70'}"
       style="left: {pos.x}px; top: {pos.y}px;"
-      data-corner-label={i + 1}
+      data-corner-label={INTERNAL_TO_CANONICAL[i]}
       aria-hidden="true"
-    >{i + 1}</span>
+    >{INTERNAL_TO_CANONICAL[i]}</span>
   {/each}
 
   {#if !hideBar}
