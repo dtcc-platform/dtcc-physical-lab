@@ -121,7 +121,7 @@
   }
   // Keyboard target: exactly one corner is always selected so the arrow keys
   // have something to move; grabbing a handle with the pointer re-selects it.
-  let selectedIndex = $state(0);
+  let selectedIndex = $state(CANONICAL_TO_INTERNAL[0]);
 
   // Square corners in screen space — the homography src.
   const srcCorners = $derived.by(() => [
@@ -240,6 +240,7 @@
       corners = next;
     };
     const select = (i: number) => (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey) return;
       e.preventDefault();
       selectedIndex = i;
     };
@@ -382,7 +383,8 @@
        handleRotation), so the whole indicator stays inside the calibration
        area (and on the physical model surface) instead of straddling the
        corner. z-10 keeps handles grabbable above the help bar. -->
-  {#each corners as c, i (i)}
+  {#each CANONICAL_TO_INTERNAL as i (i)}
+    {@const c = corners[i]}
     <button
       class="absolute z-10 w-6 h-6 bg-dtcc-orange border-2 cursor-move {selectedIndex === i
         ? 'border-dtcc-yellow ring-2 ring-dtcc-yellow'
@@ -401,7 +403,8 @@
   <!-- Number labels for the 1–4 keyboard shortcuts, outside the quad so they
        land on the table, not the model. Decorative for screen readers — the
        handles above carry the accessible names. -->
-  {#each corners as c, i (i)}
+  {#each CANONICAL_TO_INTERNAL as i (i)}
+    {@const c = corners[i]}
     {@const pos = labelPos(c)}
     <span
       class="absolute -translate-x-1/2 -translate-y-1/2 text-sm font-bold select-none pointer-events-none {selectedIndex ===

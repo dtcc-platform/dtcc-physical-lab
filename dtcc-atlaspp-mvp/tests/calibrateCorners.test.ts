@@ -32,12 +32,22 @@ async function flushEffects() {
   await tick();
 }
 
-// Handles render via {#each corners}, so DOM order is the internal corner
-// order (TL, TR, BR, BL) regardless of the canonical numbers shown on them.
 function handles(): HTMLButtonElement[] {
   return Array.from(
     document.querySelectorAll<HTMLButtonElement>('[aria-label^="Calibration corner"]'),
+  ).sort((a, b) => internalIndexFromHandle(a) - internalIndexFromHandle(b));
+}
+
+function handlesInDomOrder(): HTMLButtonElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLButtonElement>('[aria-label^="Calibration corner"]'),
   );
+}
+
+function internalIndexFromHandle(handle: HTMLButtonElement): number {
+  const match = /Calibration corner ([1-4])/.exec(handle.getAttribute('aria-label') ?? '');
+  if (!match) return Number.MAX_SAFE_INTEGER;
+  return [3, 2, 1, 0][Number(match[1]) - 1];
 }
 
 type Pt = { x: number; y: number };
@@ -299,10 +309,17 @@ function selectedIndexFromDom(): number {
   return handles().findIndex((b) => b.getAttribute('aria-pressed') === 'true');
 }
 
-// Labels also render via {#each corners}, so DOM order matches handles() —
-// labels[i] is the canonical number shown at internal corner i.
 function cornerLabels(): HTMLElement[] {
+  return cornerLabelsInDomOrder().sort((a, b) => internalIndexFromLabel(a) - internalIndexFromLabel(b));
+}
+
+function cornerLabelsInDomOrder(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>('[data-corner-label]'));
+}
+
+function internalIndexFromLabel(label: HTMLElement): number {
+  const value = Number(label.dataset.cornerLabel);
+  return [3, 2, 1, 0][value - 1] ?? Number.MAX_SAFE_INTEGER;
 }
 
 // Each label must sit a fixed margin past its corner, pushed away from the
@@ -343,10 +360,13 @@ describe('CalibrateCorners keyboard calibration', () => {
   it('selects the first corner by default and highlights it', async () => {
     mounted = mountCorners();
     await flushEffects();
-    expect(selectedIndexFromDom()).toBe(0);
-    expect(handles()[0].className).toContain('ring-2');
-    for (const other of handles().slice(1)) {
-      expect(other.className).not.toContain('ring-2');
+
+    const hs = handles();
+    const at = cornersByPosition(hs.map(positionOf));
+    expect(selectedIndexFromDom()).toBe(at.lowerLeft);
+    expect(hs[at.lowerLeft].className).toContain('ring-2');
+    for (const [i, handle] of hs.entries()) {
+      if (i !== at.lowerLeft) expect(handle.className).not.toContain('ring-2');
     }
   });
 
@@ -384,20 +404,40 @@ describe('CalibrateCorners keyboard calibration', () => {
     expect(selectedIndexFromDom()).toBe(3);
   });
 
+  it('leaves browser digit shortcuts alone', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+
+    await pressKey('3');
+    expect(selectedIndexFromDom()).toBe(1);
+
+    const cmdOne = await pressKey('1', { metaKey: true });
+    expect(cmdOne.defaultPrevented).toBe(false);
+    expect(selectedIndexFromDom()).toBe(1);
+
+    const ctrlTwo = await pressKey('2', { ctrlKey: true });
+    expect(ctrlTwo.defaultPrevented).toBe(false);
+    expect(selectedIndexFromDom()).toBe(1);
+  });
+
   it('moves the selected corner with arrow keys using the shared step sizes', async () => {
     mounted = mountCorners();
     await flushEffects();
     const before = handles().map(positionOf);
+    const at = cornersByPosition(before);
 
     const plain = await pressKey('ArrowRight');
     await pressKey('ArrowDown', { altKey: true });
     await pressKey('ArrowLeft', { shiftKey: true });
 
     const after = handles().map(positionOf);
-    expect(after[0]).toEqual({ x: before[0].x + 10 - 50, y: before[0].y + 1 });
-    expect(after[1]).toEqual(before[1]);
-    expect(after[2]).toEqual(before[2]);
-    expect(after[3]).toEqual(before[3]);
+    expect(after[at.lowerLeft]).toEqual({
+      x: before[at.lowerLeft].x + 10 - 50,
+      y: before[at.lowerLeft].y + 1,
+    });
+    for (const [i, point] of after.entries()) {
+      if (i !== at.lowerLeft) expect(point).toEqual(before[i]);
+    }
     // Arrows are consumed so ⌘+Arrow doesn't trigger browser back/forward.
     expect(plain.defaultPrevented).toBe(true);
   });
@@ -492,9 +532,10 @@ describe('CalibrateCorners keyboard calibration', () => {
     mounted = mountCorners();
     await flushEffects();
     const before = handles().map(positionOf);
+    const at = cornersByPosition(before);
 
-    // Fold: push corner 1 right past corner 2 with coarse steps.
-    const stepsOver = Math.ceil((before[1].x - before[0].x) / 50) + 1;
+    // Fold: push canonical corner 1 right past canonical corner 2 with coarse steps.
+    const stepsOver = Math.ceil((before[at.lowerRight].x - before[at.lowerLeft].x) / 50) + 1;
     for (let i = 0; i < stepsOver; i++) await pressKey('ArrowRight', { shiftKey: true });
     expect(document.body.textContent).toContain('Corners fold');
     expect(mounted.onCornersChange.mock.lastCall![1]).toBeNull();
@@ -695,5 +736,20 @@ describe('CalibrateCorners canonical corner numbering (issue #22)', () => {
       await pressKey(key);
       expect(selectedIndexFromDom()).toBe(at[corner]);
     }
+  });
+
+  it('uses canonical DOM order for native Tab traversal without positive tabindex', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+
+    const hs = handlesInDomOrder();
+    expect(hs.map((handle) => handle.getAttribute('aria-label'))).toEqual([
+      'Calibration corner 1',
+      'Calibration corner 2',
+      'Calibration corner 3',
+      'Calibration corner 4',
+    ]);
+    expect(cornerLabelsInDomOrder().map((label) => label.textContent?.trim())).toEqual(['1', '2', '3', '4']);
+    expect(hs.map((handle) => handle.tabIndex)).toEqual([0, 0, 0, 0]);
   });
 });
