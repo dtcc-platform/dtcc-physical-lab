@@ -115,7 +115,30 @@
   let dragIndex: number | null = $state(null);
   let hideBar = $state(startingBarHidden());
 
+  // Auto-collapse (issue #29): at projector resolutions the bar covers the
+  // default upper-left corner, so it shows on step entry only until the first
+  // calibration interaction (handle grab or keypress) or a short delay,
+  // whichever comes first, then collapses to the "?" chip. One-shot: any
+  // manual toggle (chip, ×, H) disarms it, so a bar the user reopened stays
+  // up until they hide it again.
+  const AUTO_COLLAPSE_MS = 5000;
+  let autoCollapseArmed = !startingBarHidden();
+
+  function collapseBar() {
+    if (!autoCollapseArmed) return;
+    autoCollapseArmed = false;
+    hideBar = true;
+    onBarHiddenChange?.(true);
+  }
+
+  $effect(() => {
+    if (!autoCollapseArmed) return;
+    const timer = setTimeout(collapseBar, AUTO_COLLAPSE_MS);
+    return () => clearTimeout(timer);
+  });
+
   function toggleBar() {
+    autoCollapseArmed = false;
     hideBar = !hideBar;
     onBarHiddenChange?.(hideBar);
   }
@@ -193,6 +216,7 @@
   let dragOffset = { x: 0, y: 0 };
 
   function startDrag(i: number, e: PointerEvent) {
+    collapseBar();
     dragIndex = i;
     selectedIndex = i;
     dragOffset = { x: corners[i].x - e.clientX, y: corners[i].y - e.clientY };
@@ -231,6 +255,7 @@
     const nudge = (dx: number, dy: number) => (e: KeyboardEvent) => {
       if (dragIndex !== null) return;
       e.preventDefault();
+      collapseBar();
       const step = stepFromEvent(e);
       const next: CornerQuad = [...corners] as CornerQuad;
       next[selectedIndex] = {
@@ -242,6 +267,7 @@
     const select = (i: number) => (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) return;
       e.preventDefault();
+      collapseBar();
       selectedIndex = i;
     };
     const resetKey = (e: KeyboardEvent) => {
@@ -250,6 +276,7 @@
       if (e.metaKey || e.ctrlKey) return;
       if (dragIndex !== null) return;
       e.preventDefault();
+      collapseBar();
       reset();
     };
     const toggleBarKey = (e: KeyboardEvent) => {
@@ -382,7 +409,10 @@
        calibration point and the body extends toward the quad centroid (see
        handleRotation), so the whole indicator stays inside the calibration
        area (and on the physical model surface) instead of straddling the
-       corner. z-10 keeps handles grabbable above the help bar. -->
+       corner. z-10 keeps handles above the chip and warning pill; the help
+       bar paints above them (z-20) but lets pointer events through, so a
+       handle under it can neither garble the text nor lose grabbability
+       (issue #29). -->
   {#each CANONICAL_TO_INTERNAL as i (i)}
     {@const c = corners[i]}
     <button
@@ -402,12 +432,15 @@
 
   <!-- Number labels for the 1–4 keyboard shortcuts, outside the quad so they
        land on the table, not the model. Decorative for screen readers — the
-       handles above carry the accessible names. -->
+       handles above carry the accessible names. z-30 keeps the numbers above
+       the help bar, which covers the upper-left corner at projector
+       resolutions, and the dark text shadow keeps them legible over its
+       white background (issue #29). -->
   {#each CANONICAL_TO_INTERNAL as i (i)}
     {@const c = corners[i]}
     {@const pos = labelPos(c)}
     <span
-      class="absolute -translate-x-1/2 -translate-y-1/2 text-sm font-bold select-none pointer-events-none {selectedIndex ===
+      class="absolute z-30 -translate-x-1/2 -translate-y-1/2 text-sm font-bold select-none pointer-events-none [text-shadow:0_1px_3px_rgb(0_0_0/0.9)] {selectedIndex ===
       i
         ? 'text-dtcc-yellow'
         : 'text-white/70'}"
@@ -421,19 +454,24 @@
     <!-- Docked top-left (issue #21): top-center overlapped the grid's top edge
          and the two top corner handles. A capped width with a wrapping button
          row keeps the box tucked in the corner instead of spanning the top
-         edge. The H / × toggle stays the escape hatch for the rare case a
+         edge. Auto-collapse (issue #29) retires the bar to the chip once
+         alignment starts, since at projector resolutions it covers the default
+         upper-left corner. Until then the bar paints above the z-10 handles
+         (z-20) so a handle can never garble its text, while pointer-events
+         pass-through keeps a covered handle grabbable — only the buttons opt
+         back in. The H / × toggle stays the escape hatch for the rare case a
          corner dragged to the top-left still reaches it. -->
-    <div class="absolute top-4 left-4 max-w-xs bg-white/90 text-dtcc-dark px-4 py-2 rounded-lg shadow-lg flex flex-col items-start gap-2">
+    <div class="absolute top-4 left-4 z-20 pointer-events-none max-w-xs bg-white/90 text-dtcc-dark px-4 py-2 rounded-lg shadow-lg flex flex-col items-start gap-2">
       <span class="text-sm">
         Drag or select a corner (Tab / 1–4), arrows move it (Shift coarse, ⌥ fine), R resets, H hides.
       </span>
       <div class="flex flex-wrap items-center gap-2">
-        <button class="px-3 py-1 text-xs rounded bg-dtcc-gray-light" onclick={reset}>Reset corners</button>
+        <button class="pointer-events-auto px-3 py-1 text-xs rounded bg-dtcc-gray-light" onclick={reset}>Reset corners</button>
         {#if warning}
           <span class="text-xs text-dtcc-red">{warning}</span>
         {/if}
         <button
-          class="px-2 py-1 text-xs rounded bg-dtcc-gray-light"
+          class="pointer-events-auto px-2 py-1 text-xs rounded bg-dtcc-gray-light"
           onclick={toggleBar}
           aria-label="Hide instructions"
         >×</button>

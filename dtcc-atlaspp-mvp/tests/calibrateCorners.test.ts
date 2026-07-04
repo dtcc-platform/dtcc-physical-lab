@@ -230,6 +230,10 @@ describe('CalibrateCorners', () => {
     await drag(tl, before[0], { x: before[1].x + 100, y: before[0].y + 300 });
     expect(document.body.textContent).toContain('Corners fold');
 
+    // The drag auto-collapsed the bar (issue #29); reopen it to reach the
+    // Reset corners button.
+    (document.querySelector('[aria-label="Show instructions"]') as HTMLButtonElement).click();
+    await flushEffects();
     const resetButton = Array.from(document.querySelectorAll('button')).find(
       (b) => b.textContent?.trim() === 'Reset corners',
     )!;
@@ -651,6 +655,212 @@ describe('CalibrateCorners keyboard calibration', () => {
     const labels = cornerLabels();
     expect(labels).toHaveLength(4);
     expectLabelsOutsideWithMargin(labels, diamond);
+  });
+});
+
+function barElement(): HTMLElement | null {
+  const span = Array.from(document.querySelectorAll('span')).find((s) =>
+    s.textContent?.includes('Drag or select a corner'),
+  );
+  return (span?.parentElement as HTMLElement) ?? null;
+}
+
+// happy-dom defaults to 1024×768; tests that change it must restore that.
+function setViewport(width: number, height: number) {
+  Object.defineProperty(window, 'innerWidth', { value: width, configurable: true, writable: true });
+  Object.defineProperty(window, 'innerHeight', { value: height, configurable: true, writable: true });
+}
+
+describe('CalibrateCorners help bar auto-collapse and placement (issue #29)', () => {
+  let mounted: ReturnType<typeof mountCorners> | null = null;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    (HTMLElement.prototype as any).setPointerCapture ??= () => {};
+    (HTMLElement.prototype as any).releasePointerCapture ??= () => {};
+  });
+
+  afterEach(async () => {
+    if (mounted) {
+      await unmount(mounted.component);
+      mounted.target.remove();
+      mounted = null;
+    }
+    setViewport(1024, 768);
+    vi.useRealTimers();
+  });
+
+  it('auto-collapses the bar to the chip on the first handle grab and reports it upward', async () => {
+    const onBarHiddenChange = vi.fn();
+    mounted = mountCorners({ onBarHiddenChange });
+    await flushEffects();
+    expect(document.body.textContent).toContain('Drag or select a corner');
+
+    const tl = handles()[0];
+    const p = positionOf(tl);
+    await drag(tl, p, { x: p.x + 10, y: p.y + 10 });
+
+    expect(document.body.textContent).not.toContain('Drag or select a corner');
+    expect(document.querySelector('[aria-label="Show instructions"]')).not.toBeNull();
+    expect(onBarHiddenChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('auto-collapses the bar on the first calibration keypress', async () => {
+    const onBarHiddenChange = vi.fn();
+    mounted = mountCorners({ onBarHiddenChange });
+    await flushEffects();
+
+    await pressKey('2');
+
+    expect(document.body.textContent).not.toContain('Drag or select a corner');
+    expect(document.querySelector('[aria-label="Show instructions"]')).not.toBeNull();
+    expect(onBarHiddenChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('auto-collapses the bar after the entry delay when the user never interacts', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const onBarHiddenChange = vi.fn();
+    mounted = mountCorners({ onBarHiddenChange });
+    await flushEffects();
+
+    vi.advanceTimersByTime(4999);
+    await flushEffects();
+    expect(document.body.textContent).toContain('Drag or select a corner');
+
+    vi.advanceTimersByTime(1);
+    await flushEffects();
+    expect(document.body.textContent).not.toContain('Drag or select a corner');
+    expect(document.querySelector('[aria-label="Show instructions"]')).not.toBeNull();
+    expect(onBarHiddenChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('keeps a manually reopened bar visible through further alignment and past the delay', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const onBarHiddenChange = vi.fn();
+    mounted = mountCorners({ onBarHiddenChange });
+    await flushEffects();
+
+    await pressKey('ArrowRight');
+    expect(document.body.textContent).not.toContain('Drag or select a corner');
+    (document.querySelector('[aria-label="Show instructions"]') as HTMLButtonElement).click();
+    await flushEffects();
+
+    await pressKey('ArrowRight');
+    const tl = handles()[0];
+    const p = positionOf(tl);
+    await drag(tl, p, { x: p.x + 5, y: p.y + 5 });
+    vi.advanceTimersByTime(60_000);
+    await flushEffects();
+
+    expect(document.body.textContent).toContain('Drag or select a corner');
+    expect(onBarHiddenChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('does not auto-collapse a bar the user toggled before the delay', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    mounted = mountCorners();
+    await flushEffects();
+
+    await pressKey('h');
+    await pressKey('h');
+    expect(document.body.textContent).toContain('Drag or select a corner');
+
+    vi.advanceTimersByTime(60_000);
+    await flushEffects();
+    expect(document.body.textContent).toContain('Drag or select a corner');
+  });
+
+  // The bar's right edge sits at left-4 + max-w-xs = 16 + 320 = 336px. At both
+  // projector resolutions from issue #29 the default upper-left corner falls
+  // inside that span, so label stacking + collapse are what keep it usable.
+  for (const [w, h] of [
+    [1024, 768],
+    [1280, 720],
+  ] as const) {
+    it(`keeps handles and labels unobstructed during alignment at ${w}×${h}`, async () => {
+      setViewport(w, h);
+      mounted = mountCorners();
+      await flushEffects();
+
+      // Precondition: the default upper-left corner really is under the bar's span.
+      const upperLeft = handles()[0];
+      expect(positionOf(upperLeft).x).toBeLessThan(336);
+
+      // While the bar shows, it paints above the handles (so a handle can
+      // never garble its text) and the number labels paint above the bar.
+      const barClasses = Array.from(barElement()!.classList);
+      expect(barClasses).toContain('z-20');
+      expect(barClasses).toContain('pointer-events-none');
+      for (const label of cornerLabels()) expect(Array.from(label.classList)).toContain('z-30');
+      for (const handle of handles()) expect(Array.from(handle.classList)).toContain('z-10');
+
+      // First grab starts alignment: the bar collapses so nothing overlaps.
+      const p = positionOf(upperLeft);
+      await drag(upperLeft, p, { x: p.x + 10, y: p.y + 10 });
+      expect(document.body.textContent).not.toContain('Drag or select a corner');
+      expect(document.querySelector('[aria-label="Show instructions"]')).not.toBeNull();
+    });
+  }
+
+  it('paints the bar above the handles with click-through so its text is never garbled', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+
+    // The bar stacks above the z-10 handles but lets pointer events through,
+    // so a handle under it stays grabbable while its text stays readable.
+    const bar = barElement()!;
+    const barClasses = Array.from(bar.classList);
+    expect(barClasses).toContain('z-20');
+    expect(barClasses).toContain('pointer-events-none');
+    for (const button of Array.from(bar.querySelectorAll('button'))) {
+      expect(Array.from(button.classList)).toContain('pointer-events-auto');
+    }
+
+    // Corner numbers stay above the bar and carry a dark shadow so they stay
+    // legible over its white background.
+    for (const label of cornerLabels()) {
+      const classes = Array.from(label.classList);
+      expect(classes).toContain('z-30');
+      expect(classes).toContain('[text-shadow:0_1px_3px_rgb(0_0_0/0.9)]');
+    }
+
+    // A handle grabbed beneath the bar still starts a drag (and collapses it).
+    const tl = handles()[0];
+    const p = positionOf(tl);
+    await drag(tl, p, { x: p.x + 5, y: p.y + 5 });
+    expect(document.body.textContent).not.toContain('Drag or select a corner');
+  });
+
+  it('docks the bar top-left with a capped width (not top-center)', async () => {
+    mounted = mountCorners();
+    await flushEffects();
+
+    const bar = barElement();
+    expect(bar).not.toBeNull();
+    const classes = Array.from(bar!.classList);
+    expect(classes).toContain('top-4');
+    expect(classes).toContain('left-4');
+    expect(classes).toContain('max-w-xs');
+    expect(classes).not.toContain('left-1/2');
+    expect(classes).not.toContain('-translate-x-1/2');
+    expect(classes).not.toContain('right-4');
+  });
+
+  it('stacks the chip and the standalone warning in the same top-left corner', async () => {
+    mounted = mountCorners({ barHidden: true });
+    await flushEffects();
+    const before = handles().map(positionOf);
+    await drag(handles()[0], before[0], { x: before[1].x + 100, y: before[0].y + 300 });
+
+    const chip = document.querySelector('[aria-label="Show instructions"]') as HTMLElement;
+    const wrapper = chip.parentElement!;
+    const classes = Array.from(wrapper.classList);
+    expect(classes).toContain('top-4');
+    expect(classes).toContain('left-4');
+    expect(classes).not.toContain('right-4');
+    // Chip first, warning stacked below it — both visible at once.
+    expect(wrapper.firstElementChild).toBe(chip);
+    expect(wrapper.textContent).toContain('Corners fold');
   });
 });
 
