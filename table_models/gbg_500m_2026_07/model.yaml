@@ -1,0 +1,11 @@
+model_id: gbg_500m_2026_07
+title: Gothenburg 500 m tangible table model
+crs: EPSG:3006
+bounds: [319720, 6397660, 320220, 6398160]
+physical:
+  width_mm: 400
+  height_mm: 400
+  scale: 1250
+catalog:
+  dataset_key_prefix: table-gbg-500m-2026-07
+  output_dir: temp/table_catalog/gbg_500m_2026_07

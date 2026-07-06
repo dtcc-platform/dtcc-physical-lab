@@ -1,0 +1,160 @@
+datasets:
+  - id: calibration_grid
+    dataset: calibration_grid
+    title: Calibration Grid GeoJSON
+    description: Alignment grid over the table bounds with 41 lines per axis.
+    params:
+      divisions: 40
+      crs: EPSG:3006
+    export:
+      format: geojson
+      filename: calibration_grid.geojson
+    table:
+      role: alignment
+      dataset_key_suffix: calibration-grid-geojson
+      publish: true
+
+  - id: smoke_field_vtu
+    dataset: smoke
+    title: Smoke Field VTU
+    description: Local-only VTU volume field smoke artifact.
+    params:
+      product: field
+      resolution: 17
+    export:
+      format: vtu
+      filename: smoke_field.vtu
+    table:
+      role: local_reference
+      dataset_key_suffix: smoke-field-vtu
+      publish: false
+
+  - id: smoke_field_pb
+    dataset: smoke
+    title: Smoke Field Protobuf
+    description: Local-only protobuf volume field smoke artifact.
+    params:
+      product: field
+      resolution: 17
+    export:
+      format: pb
+      filename: smoke_field.pb
+    table:
+      role: local_reference
+      dataset_key_suffix: smoke-field-pb
+      publish: false
+
+  - id: smoke_slice_geojson
+    dataset: smoke
+    title: Smoke Slice GeoJSON
+    description: Atlas smoke scalar slice exported as GeoJSON.
+    params:
+      product: slice
+      resolution: 31
+      slice_axis: z
+      slice_position: 0.5
+      crs: EPSG:3006
+    export:
+      format: geojson
+      filename: smoke_slice.geojson
+    table:
+      role: overlay
+      dataset_key_suffix: smoke-slice-geojson
+      publish: true
+
+  - id: smoke_streamlines_geojson
+    dataset: smoke
+    title: Smoke Streamlines GeoJSON
+    description: Atlas smoke streamlines exported as GeoJSON.
+    params:
+      product: streamlines
+      streamline_count: 25
+      streamline_steps: 120
+      crs: EPSG:3006
+    export:
+      format: geojson
+      filename: smoke_streamlines.geojson
+    table:
+      role: overlay
+      dataset_key_suffix: smoke-streamlines-geojson
+      publish: true
+
+  - id: smoke_slice
+    dataset: smoke
+    title: Smoke Slice PNG
+    description: Atlas smoke scalar slice rendered as PNG.
+    params:
+      product: slice
+      resolution: 128
+      slice_axis: z
+      slice_position: 0.5
+      profile: table
+      width: 1920
+      height: 1920
+    export:
+      format: png
+      filename: smoke_slice.png
+    table:
+      role: projection
+      dataset_key_suffix: smoke-slice-png
+      publish: true
+
+  - id: smoke_streamlines
+    dataset: smoke
+    title: Smoke Streamlines PNG
+    description: Atlas smoke streamlines rendered as PNG.
+    params:
+      product: streamlines
+      streamline_count: 64
+      streamline_steps: 180
+      profile: table
+      width: 1920
+      height: 1920
+    export:
+      format: png
+      filename: smoke_streamlines.png
+    table:
+      role: projection
+      dataset_key_suffix: smoke-streamlines-png
+      publish: true
+
+  - id: smoke_streamlines_mp4
+    dataset: smoke
+    title: Smoke Streamlines MP4
+    description: Atlas smoke streamlines rendered as an MP4 loop.
+    params:
+      product: streamlines
+      streamline_count: 48
+      streamline_steps: 150
+      profile: table
+      width: 1920
+      height: 1920
+      fps: 30
+      duration: 8.0
+      period: 8.0
+    export:
+      format: mp4
+      filename: smoke_streamlines.mp4
+    table:
+      role: projection_video
+      dataset_key_suffix: smoke-streamlines-mp4
+      publish: true
+      default_enabled: false
+      skip_reason: MP4 rendering is intentionally opt-in because it requires video encoding support.
+
+  - id: footprints_geojson
+    dataset: building_footprints
+    title: Building Footprints GeoJSON
+    description: Real building footprints over the table bounds for physical alignment.
+    params:
+      crs: EPSG:3006
+    export:
+      format: geojson
+      filename: building_footprints.geojson
+    table:
+      role: live_overlay
+      dataset_key_suffix: footprints-geojson
+      publish: true
+      default_enabled: false
+      requires_network: true
+      skip_reason: Footprints require live provider/network access and are not part of default generation.
