@@ -2,13 +2,16 @@ datasets:
   - id: calibration_grid
     dataset: calibration_grid
     title: Calibration Grid GeoJSON
-    description: Alignment grid over the table bounds with 41 lines per axis.
+    description: Deterministic 12.5 m coordinate grid over the table bounds, with 41 lines per axis for projector alignment.
     params:
       divisions: 40
       crs: EPSG:3006
     export:
       format: geojson
       filename: calibration_grid.geojson
+      media_type: application/geo+json
+      data_kind: vector
+      crs: EPSG:3006
     table:
       role: alignment
       dataset_key_suffix: calibration-grid-geojson
@@ -17,37 +20,45 @@ datasets:
   - id: smoke_field_vtu
     dataset: smoke
     title: Smoke Field VTU
-    description: Local-only VTU volume field smoke artifact.
+    description: Local-only synthetic smoke volume field for inspecting velocity, speed, and pressure values outside the table projector path.
     params:
       product: field
       resolution: 17
     export:
       format: vtu
       filename: smoke_field.vtu
+      media_type: application/vnd.vtk.vtu+xml
+      data_kind: mesh
     table:
       role: local_reference
       dataset_key_suffix: smoke-field-vtu
       publish: false
+      default_enabled: false
+      skip_reason: VTU volume fields are local inspection artifacts and are not useful in the projector-table UI.
 
   - id: smoke_field_pb
     dataset: smoke
     title: Smoke Field Protobuf
-    description: Local-only protobuf volume field smoke artifact.
+    description: Local-only synthetic smoke protobuf package for Dataset v2 serialization checks; not a physical CFD result.
     params:
       product: field
       resolution: 17
     export:
       format: pb
       filename: smoke_field.pb
+      media_type: application/x-protobuf
+      data_kind: protobuf
     table:
       role: local_reference
       dataset_key_suffix: smoke-field-pb
       publish: false
+      default_enabled: false
+      skip_reason: Protobuf volume fields are local serialization checks and are not useful in the projector-table UI.
 
   - id: smoke_slice_geojson
     dataset: smoke
     title: Smoke Slice GeoJSON
-    description: Atlas smoke scalar slice exported as GeoJSON.
+    description: Synthetic smoke speed slice exported as GeoJSON for Atlas/table overlay checks.
     params:
       product: slice
       resolution: 31
@@ -57,6 +68,9 @@ datasets:
     export:
       format: geojson
       filename: smoke_slice.geojson
+      media_type: application/geo+json
+      data_kind: vector
+      crs: EPSG:3006
     table:
       role: overlay
       dataset_key_suffix: smoke-slice-geojson
@@ -65,7 +79,7 @@ datasets:
   - id: smoke_streamlines_geojson
     dataset: smoke
     title: Smoke Streamlines GeoJSON
-    description: Atlas smoke streamlines exported as GeoJSON.
+    description: Synthetic smoke streamlines exported as GeoJSON for flow-direction overlay checks.
     params:
       product: streamlines
       streamline_count: 25
@@ -74,6 +88,9 @@ datasets:
     export:
       format: geojson
       filename: smoke_streamlines.geojson
+      media_type: application/geo+json
+      data_kind: vector
+      crs: EPSG:3006
     table:
       role: overlay
       dataset_key_suffix: smoke-streamlines-geojson
@@ -82,7 +99,7 @@ datasets:
   - id: smoke_slice
     dataset: smoke
     title: Smoke Slice PNG
-    description: Atlas smoke scalar slice rendered as PNG.
+    description: Table-projection PNG showing synthetic smoke speed on a horizontal slice; a UX fixture, not validated CFD.
     params:
       product: slice
       resolution: 128
@@ -94,6 +111,9 @@ datasets:
     export:
       format: png
       filename: smoke_slice.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
     table:
       role: projection
       dataset_key_suffix: smoke-slice-png
@@ -102,7 +122,7 @@ datasets:
   - id: smoke_streamlines
     dataset: smoke
     title: Smoke Streamlines PNG
-    description: Atlas smoke streamlines rendered as PNG.
+    description: Table-projection PNG showing synthetic smoke streamlines for flow-direction UX checks; not validated CFD.
     params:
       product: streamlines
       streamline_count: 64
@@ -113,6 +133,9 @@ datasets:
     export:
       format: png
       filename: smoke_streamlines.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
     table:
       role: projection
       dataset_key_suffix: smoke-streamlines-png
@@ -121,7 +144,7 @@ datasets:
   - id: smoke_streamlines_mp4
     dataset: smoke
     title: Smoke Streamlines MP4
-    description: Atlas smoke streamlines rendered as an MP4 loop.
+    description: Optional synthetic smoke streamline MP4 loop for motion UX checks; disabled by default because video encoding is extra runtime surface.
     params:
       product: streamlines
       streamline_count: 48
@@ -135,6 +158,9 @@ datasets:
     export:
       format: mp4
       filename: smoke_streamlines.mp4
+      media_type: video/mp4
+      data_kind: video
+      crs: EPSG:3006
     table:
       role: projection_video
       dataset_key_suffix: smoke-streamlines-mp4
@@ -145,16 +171,20 @@ datasets:
   - id: footprints_geojson
     dataset: building_footprints
     title: Building Footprints GeoJSON
-    description: Real building footprints over the table bounds for physical alignment.
+    description: Cached/live building footprints over the table bounds for physical alignment; source and license review required before default publishing.
     params:
+      source: LM
       crs: EPSG:3006
     export:
       format: geojson
       filename: building_footprints.geojson
+      media_type: application/geo+json
+      data_kind: vector
+      crs: EPSG:3006
     table:
-      role: live_overlay
+      role: alignment_context
       dataset_key_suffix: footprints-geojson
       publish: true
       default_enabled: false
       requires_network: true
-      skip_reason: Footprints require live provider/network access and are not part of default generation.
+      skip_reason: Default generation stays disabled because footprint output depends on provider/cache availability and source-term review.

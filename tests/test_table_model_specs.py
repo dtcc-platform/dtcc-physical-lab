@@ -33,6 +33,22 @@ def test_gbg_table_model_specs_validate():
         "footprints_geojson",
     } <= ids
 
+    by_id = {spec.id: spec for spec in datasets}
+    assert "12.5 m coordinate grid" in by_id["calibration_grid"].description
+    assert by_id["calibration_grid"].export.media_type == "application/geo+json"
+    assert by_id["calibration_grid"].export.data_kind == "vector"
+    assert by_id["calibration_grid"].export.crs == "EPSG:3006"
+    assert by_id["smoke_slice"].export.media_type == "image/png"
+    assert by_id["smoke_slice"].export.data_kind == "raster"
+    assert by_id["smoke_slice"].export.crs == "EPSG:3006"
+    assert by_id["smoke_slice_geojson"].export.crs == "EPSG:3006"
+    assert "not validated CFD" in by_id["smoke_slice"].description
+    assert "not validated CFD" in by_id["smoke_streamlines"].description
+    assert "source and license review" in by_id["footprints_geojson"].description
+    assert by_id["footprints_geojson"].params["source"] == "LM"
+    assert by_id["footprints_geojson"].table.role == "alignment_context"
+    assert by_id["footprints_geojson"].export.crs == "EPSG:3006"
+
 
 def test_default_disabled_specs_have_reasons():
     _model, datasets = load_specs(REPO_ROOT, "gbg_500m_2026_07")
@@ -40,10 +56,30 @@ def test_default_disabled_specs_have_reasons():
     disabled = [spec for spec in datasets if not spec.table.default_enabled]
 
     assert {spec.id for spec in disabled} == {
+        "smoke_field_vtu",
+        "smoke_field_pb",
         "smoke_streamlines_mp4",
         "footprints_geojson",
     }
     assert all(spec.table.skip_reason for spec in disabled)
+
+
+def test_gbg_table_profile_readme_documents_operations():
+    readme = (
+        REPO_ROOT / "table_models" / "gbg_500m_2026_07" / "README.md"
+    ).read_text(encoding="utf-8")
+
+    assert "Bounds: `[319720, 6397660, 320220, 6398160]`" in readme
+    assert "python scripts/generate_table_catalog.py gbg_500m_2026_07 --dry-run" in (
+        readme
+    )
+    assert "python scripts/generate_table_catalog.py gbg_500m_2026_07 --clean" in (
+        readme
+    )
+    assert "DTCC_UPLOAD_URL" in readme
+    assert "smoke_field_vtu" in readme
+    assert "footprints_geojson" in readme
+    assert "Visual Inspection Notes" in readme
 
 
 def test_model_id_must_match_directory(tmp_path):

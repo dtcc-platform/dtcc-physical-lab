@@ -47,6 +47,9 @@ def _write_fake_specs(root: Path, *, output_dir: str = "temp/fake") -> None:
                 "    export:",
                 "      format: geojson",
                 "      filename: fake.geojson",
+                "      media_type: application/geo+json",
+                "      data_kind: vector",
+                "      crs: EPSG:3006",
                 "    table:",
                 "      role: overlay",
                 "      dataset_key_suffix: fake-geojson",
@@ -90,6 +93,7 @@ class FakeDatasetObject:
                     "format": format,
                     "media_type": "application/geo+json",
                     "data_kind": "vector",
+                    "crs": "EPSG:3006",
                     "bounds": self.params["bounds"],
                     "size": len(payload),
                     "sha256": hashlib.sha256(payload).hexdigest(),
@@ -104,6 +108,22 @@ class FakeDatasetObject:
 
 def fake_dataset(**params):
     return FakeDatasetObject(params)
+
+
+class WrongMediaTypeDatasetObject(FakeDatasetObject):
+    def export(self, package_dir: Path, *, format: str):
+        super().export(package_dir, format=format)
+        manifest_path = package_dir / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["artifacts"][0]["media_type"] = "application/json"
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+
+def wrong_media_type_dataset(**params):
+    return WrongMediaTypeDatasetObject(params)
 
 
 def test_dry_run_validates_real_specs_without_creating_output(tmp_path):
@@ -123,7 +143,15 @@ def test_dry_run_validates_real_specs_without_creating_output(tmp_path):
         "smoke_slice",
         "smoke_streamlines",
     }
+    planned_by_id = {item["id"]: item for item in report["planned"]}
+    assert planned_by_id["calibration_grid"]["media_type"] == (
+        "application/geo+json"
+    )
+    assert planned_by_id["calibration_grid"]["crs"] == "EPSG:3006"
+    assert planned_by_id["smoke_slice"]["media_type"] == "image/png"
     assert {item["id"] for item in report["skipped"]} >= {
+        "smoke_field_vtu",
+        "smoke_field_pb",
         "smoke_streamlines_mp4",
         "footprints_geojson",
     }
@@ -174,6 +202,23 @@ def test_fake_dataset_generation_writes_valid_package(tmp_path):
     assert manifest["metadata"]["description"] == "Fake generated package."
     assert manifest["request"]["bounds"] == [10.0, 20.0, 30.0, 40.0]
     assert manifest["artifacts"][0]["path"] == "artifacts/fake.geojson"
+    assert manifest["artifacts"][0]["media_type"] == "application/geo+json"
+    assert manifest["artifacts"][0]["data_kind"] == "vector"
+    assert manifest["artifacts"][0]["crs"] == "EPSG:3006"
+    assert manifest["presentation"]["view_hints"]["expected_format"] == "geojson"
+    assert manifest["presentation"]["view_hints"]["expected_crs"] == "EPSG:3006"
     assert (package_dir / "artifacts" / "fake.geojson").is_file()
     assert (package_dir / "generation_report.json").exists() is False
     assert (tmp_path / "out" / "generation_report.json").is_file()
+
+
+def test_generation_fails_when_artifact_metadata_mismatches_spec(tmp_path):
+    _write_fake_specs(tmp_path, output_dir="out")
+
+    with pytest.raises(GenerationError, match="media_type"):
+        generate_catalog(
+            "fake_model",
+            root_dir=tmp_path,
+            clean=True,
+            dataset_registry={"fake_dataset": wrong_media_type_dataset},
+        )

@@ -58,6 +58,9 @@ class TableModelSpec:
 class ExportSpec:
     format: str
     filename: str
+    media_type: str | None
+    data_kind: str | None
+    crs: str | None
 
 
 @dataclass(frozen=True)
@@ -272,6 +275,9 @@ def _load_dataset_specs(path: Path) -> tuple[TableDatasetSpec, ...]:
             export=ExportSpec(
                 format=_required_str(export_data, "format", f"{where}.export").lower().lstrip("."),
                 filename=_required_filename(export_data, "filename", f"{where}.export"),
+                media_type=_optional_str(export_data, "media_type", f"{where}.export"),
+                data_kind=_optional_str(export_data, "data_kind", f"{where}.export"),
+                crs=_optional_str(export_data, "crs", f"{where}.export"),
             ),
             table=TableSpec(
                 role=_required_str(table_data, "role", f"{where}.table"),
@@ -352,7 +358,11 @@ def _generate_one(
     _rename_primary_artifact(package_dir, primary_artifact, spec.export.filename)
     _apply_table_manifest_overrides(manifest, model, spec)
     _write_json(manifest_path, manifest)
-    artifact_paths = _validate_package(package_dir, expected_bounds=list(model.bounds))
+    artifact_paths = _validate_package(
+        package_dir,
+        expected_bounds=list(model.bounds),
+        spec=spec,
+    )
 
     dataset_key = f"{model.catalog.dataset_key_prefix}-{spec.dataset_key_suffix}"
     return {
@@ -456,8 +466,15 @@ def _apply_table_manifest_overrides(
             "physical_width_mm": model.physical.width_mm,
             "physical_height_mm": model.physical.height_mm,
             "physical_scale": model.physical.scale,
+            "expected_format": spec.export.format,
         }
     )
+    if spec.export.media_type is not None:
+        view_hints["expected_media_type"] = spec.export.media_type
+    if spec.export.data_kind is not None:
+        view_hints["expected_data_kind"] = spec.export.data_kind
+    if spec.export.crs is not None:
+        view_hints["expected_crs"] = spec.export.crs
     presentation["view_hints"] = view_hints
     request["bounds"] = list(model.bounds)
     params = request.get("parameters")
@@ -465,7 +482,12 @@ def _apply_table_manifest_overrides(
         params["bounds"] = list(model.bounds)
 
 
-def _validate_package(package_dir: Path, *, expected_bounds: list[float]) -> list[Path]:
+def _validate_package(
+    package_dir: Path,
+    *,
+    expected_bounds: list[float],
+    spec: TableDatasetSpec,
+) -> list[Path]:
     manifest_path = package_dir / "manifest.json"
     manifest = _read_json_manifest(manifest_path)
     if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
@@ -500,7 +522,35 @@ def _validate_package(package_dir: Path, *, expected_bounds: list[float]) -> lis
         if expected_sha is not None and expected_sha != _sha256_file(artifact_path):
             raise GenerationError(f"{manifest_path} artifact {path_value} sha256 does not match")
         artifact_paths.append(artifact_path)
+    _validate_expected_primary_artifact(manifest, spec, manifest_path)
     return artifact_paths
+
+
+def _validate_expected_primary_artifact(
+    manifest: Mapping[str, Any],
+    spec: TableDatasetSpec,
+    manifest_path: Path,
+) -> None:
+    primary = _select_primary_artifact(dict(manifest), spec)
+    expected_path = f"artifacts/{spec.export.filename}"
+    if primary.get("path") != expected_path:
+        raise GenerationError(
+            f"{manifest_path} primary {spec.export.format!r} artifact path must "
+            f"be {expected_path!r}"
+        )
+    expectations = {
+        "media_type": spec.export.media_type,
+        "data_kind": spec.export.data_kind,
+        "crs": spec.export.crs,
+    }
+    for field_name, expected_value in expectations.items():
+        if expected_value is None:
+            continue
+        if primary.get(field_name) != expected_value:
+            raise GenerationError(
+                f"{manifest_path} primary artifact {field_name} must be "
+                f"{expected_value!r}; got {primary.get(field_name)!r}"
+            )
 
 
 def _publish_package(
@@ -560,6 +610,9 @@ def _report_planned_item(model: TableModelSpec, spec: TableDatasetSpec) -> dict[
         "table_role": spec.table.role,
         "publish_requested": spec.table.publish,
         "requires_network": spec.table.requires_network,
+        "media_type": spec.export.media_type,
+        "data_kind": spec.export.data_kind,
+        "crs": spec.export.crs,
     }
 
 
