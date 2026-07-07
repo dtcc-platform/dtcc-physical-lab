@@ -20,6 +20,7 @@ from scripts.generate_table_catalog import (
     SpecError,
     _module_spec_exists_without_import,
     generate_catalog,
+    main,
 )
 
 
@@ -365,31 +366,14 @@ def test_include_dev_dry_run_includes_default_and_dev_specs(tmp_path):
     assert planned_by_id["smoke_streamlines_mp4"]["tier"] == "core"
 
 
-def test_legacy_tier_alias_still_selects_dev_specs(tmp_path):
-    report = generate_catalog(
-        "gbg_500m_2026_07",
-        root_dir=REPO_ROOT,
-        output_dir=tmp_path / "out",
-        tier="dev",
-        dry_run=True,
-    )
+def test_legacy_tier_alias_is_rejected_by_cli(capsys):
+    legacy_alias = "--" + "tier"
 
-    planned = {item["id"] for item in report["planned"]}
+    with pytest.raises(SystemExit) as exc_info:
+        main(["gbg_500m_2026_07", legacy_alias, "dev", "--dry-run"])
 
-    assert "smoke_slice_geojson" in planned
-    assert report["selected_tiers"] == ["core", "dev"]
-
-
-def test_include_and_legacy_tier_cannot_be_combined(tmp_path):
-    with pytest.raises(SpecError, match="Use either --include"):
-        generate_catalog(
-            "gbg_500m_2026_07",
-            root_dir=REPO_ROOT,
-            output_dir=tmp_path / "out",
-            include="dev",
-            tier="expensive",
-            dry_run=True,
-        )
+    assert exc_info.value.code == 2
+    assert f"unrecognized arguments: {legacy_alias} dev" in capsys.readouterr().err
 
 
 def test_dependency_probe_does_not_import_parent_package(tmp_path, monkeypatch):

@@ -35,7 +35,6 @@ INCLUDE_SELECTIONS = {
     "expensive": frozenset({"core", "expensive"}),
     "all": frozenset(VALID_TIERS),
 }
-TIER_SELECTIONS = INCLUDE_SELECTIONS
 
 
 class SpecError(ValueError):
@@ -128,7 +127,6 @@ def generate_catalog(
     root_dir: Path | None = None,
     output_dir: Path | None = None,
     include: Sequence[str] | str | None = None,
-    tier: Sequence[str] | str | None = None,
     only: Sequence[str] = (),
     skip: Sequence[str] = (),
     clean: bool = False,
@@ -145,7 +143,7 @@ def generate_catalog(
     root = Path(root_dir or Path.cwd()).resolve()
     resolved_env = os.environ if env is None else env
     model, dataset_specs = load_specs(root, model_id)
-    selected_tiers = _resolve_tiers(include=include, tier=tier)
+    selected_tiers = _resolve_tiers(include=include)
     selected, skipped = _select_dataset_specs(
         dataset_specs,
         only=only,
@@ -351,14 +349,8 @@ def _selection_was_provided(value: Sequence[str] | str | None) -> bool:
     return value is not None and value != () and value != []
 
 
-def _resolve_tiers(
-    *,
-    include: Sequence[str] | str | None = None,
-    tier: Sequence[str] | str | None = None,
-) -> frozenset[str]:
-    if _selection_was_provided(include) and _selection_was_provided(tier):
-        raise SpecError("Use either --include or legacy --tier, not both.")
-    selection = include if _selection_was_provided(include) else tier
+def _resolve_tiers(*, include: Sequence[str] | str | None = None) -> frozenset[str]:
+    selection = include
     if not _selection_was_provided(selection):
         return INCLUDE_SELECTIONS["default"]
     raw_values = [selection] if isinstance(selection, str) else list(selection)
@@ -1314,7 +1306,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("model_id", help="Table model id under table_models/.")
     parser.add_argument("--output-dir", metavar="PATH", help="Override catalog output directory.")
     parser.add_argument("--include", action="append", default=[], metavar="SET", help="Include default, dev, credentialed, simulation, expensive, or all. May be repeated or comma-separated. Default: default.")
-    parser.add_argument("--tier", action="append", default=[], metavar="SET", help="Legacy alias for --include.")
     parser.add_argument("--only", action="append", default=[], metavar="ID", help="Generate only one dataset id. May be repeated.")
     parser.add_argument("--skip", action="append", default=[], metavar="ID", help="Skip one dataset id. May be repeated.")
     parser.add_argument("--clean", action="store_true", help="Delete an existing non-empty output directory before generation.")
@@ -1335,7 +1326,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.model_id,
             output_dir=Path(args.output_dir) if args.output_dir else None,
             include=args.include,
-            tier=args.tier,
             only=args.only,
             skip=args.skip,
             clean=args.clean,

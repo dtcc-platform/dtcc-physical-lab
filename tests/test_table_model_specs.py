@@ -122,7 +122,6 @@ def test_gbg_table_profile_readme_documents_operations():
     )
     assert "--include credentialed --strict --dry-run" in readme
     assert "--include expensive --run-expensive --clean" in readme
-    assert "`--tier` remains accepted as a legacy alias" in readme
     assert "DTCC_UPLOAD_URL" in readme
     assert ".dtccpkg" in readme
     assert "manifest.json" in readme

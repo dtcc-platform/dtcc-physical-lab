@@ -77,9 +77,6 @@ DTCC_UPLOAD_URL=https://upload.example DTCC_UPLOAD_TOKEN=... \
   python scripts/generate_table_catalog.py gbg_500m_2026_07 --publish --clean
 ```
 
-`--tier` remains accepted as a legacy alias for `--include`, but new
-operator docs should use `--include`.
-
 ## Dataset Sets
 
 | Set | Dataset ids | Purpose |
