@@ -37,6 +37,19 @@ type DisplayCandidate = {
   rank: number;
   index: number;
 };
+type ZipEntry = {
+  name: string;
+  compressionMethod: number;
+  compressedSize: number;
+  uncompressedSize: number;
+  localHeaderOffset: number;
+};
+
+const ZIP_LOCAL_FILE_HEADER = 0x04034b50;
+const ZIP_CENTRAL_DIRECTORY_FILE_HEADER = 0x02014b50;
+const ZIP_END_OF_CENTRAL_DIRECTORY = 0x06054b50;
+const ZIP_STORED = 0;
+const ZIP_DEFLATED = 8;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -144,6 +157,10 @@ function kindForManifest(manifest: Record<string, unknown>): ManifestInputResult
 export function isDtccManifestFile(file: File): boolean {
   const name = file.name.toLowerCase();
   return name.endsWith('.manifest.json') || name === 'manifest.json';
+}
+
+export function isDtccPackageFile(file: File): boolean {
+  return file.name.toLowerCase().endsWith('.dtccpkg');
 }
 
 export function parseDtccManifestText(manifestPath: string, text: string): ManifestInputResult<DtccManifest> {
@@ -306,6 +323,13 @@ export function findManifestArtifact(files: File[], manifest: DtccManifest, mani
 }
 
 export async function resolveDtccManifestFiles(files: File[]): Promise<ManifestInputResult<DtccManifestFileSelection>> {
+  if (files.some(isDtccPackageFile)) {
+    const packages = await resolveDtccPackageFiles(files);
+    if (!packages.ok) return packages;
+    if (packages.value.length !== 1) return { ok: false, error: 'select exactly one .dtccpkg package' };
+    return { ok: true, value: packages.value[0] };
+  }
+
   const manifestFile = files.find(isDtccManifestFile);
   if (!manifestFile) return { ok: false, error: 'selection does not include a dtcc manifest' };
 
@@ -323,7 +347,22 @@ export async function resolveDtccManifestFiles(files: File[]): Promise<ManifestI
   };
 }
 
+export async function resolveDtccPackageFiles(files: File[]): Promise<ManifestInputResult<DtccManifestFileSelection[]>> {
+  const packageFiles = files.filter(isDtccPackageFile);
+  if (packageFiles.length === 0) return { ok: false, error: 'selection does not include a .dtccpkg package' };
+
+  const extractedFiles: File[] = [];
+  for (const packageFile of packageFiles) {
+    const extracted = await extractDtccPackage(packageFile);
+    if (!extracted.ok) return extracted;
+    extractedFiles.push(...extracted.value);
+  }
+  return resolveDtccManifestFolder(extractedFiles);
+}
+
 export async function resolveDtccManifestFolder(files: File[]): Promise<ManifestInputResult<DtccManifestFileSelection[]>> {
+  if (files.some(isDtccPackageFile)) return resolveDtccPackageFiles(files);
+
   const manifestFiles = files.filter(isDtccManifestFile);
   if (manifestFiles.length === 0) return { ok: false, error: 'folder does not include a dtcc manifest' };
 
@@ -351,4 +390,128 @@ export async function resolveDtccManifestFolder(files: File[]): Promise<Manifest
   }
 
   return { ok: true, value: selections };
+}
+
+async function extractDtccPackage(packageFile: File): Promise<ManifestInputResult<File[]>> {
+  const bytes = new Uint8Array(await packageFile.arrayBuffer());
+  const entries = readZipEntries(bytes, packageFile.name);
+  if (!entries.ok) return entries;
+
+  const files: File[] = [];
+  for (const entry of entries.value) {
+    if (!isSafeRelativeFile(entry.name)) {
+      return { ok: false, error: `${packageFile.name} contains unsafe member ${entry.name}` };
+    }
+    const data = await readZipEntry(bytes, entry, packageFile.name);
+    if (!data.ok) return data;
+    files.push(fileFromPackageMember(packageFile.name, entry.name, data.value));
+  }
+
+  if (!files.some(isDtccManifestFile)) return { ok: false, error: `${packageFile.name} does not contain manifest.json` };
+  return { ok: true, value: files };
+}
+
+function readZipEntries(bytes: Uint8Array, packageName: string): ManifestInputResult<ZipEntry[]> {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const minEndOffset = Math.max(0, bytes.length - 65557);
+  let endOffset = -1;
+  for (let offset = bytes.length - 22; offset >= minEndOffset; offset -= 1) {
+    if (view.getUint32(offset, true) === ZIP_END_OF_CENTRAL_DIRECTORY) {
+      endOffset = offset;
+      break;
+    }
+  }
+  if (endOffset === -1) return { ok: false, error: `${packageName} is not a valid .dtccpkg zip archive` };
+
+  const entryCount = view.getUint16(endOffset + 10, true);
+  const centralDirectorySize = view.getUint32(endOffset + 12, true);
+  const centralDirectoryOffset = view.getUint32(endOffset + 16, true);
+  if (
+    centralDirectoryOffset === 0xffffffff ||
+    centralDirectorySize === 0xffffffff ||
+    centralDirectoryOffset + centralDirectorySize > bytes.length
+  ) {
+    return { ok: false, error: `${packageName} uses an unsupported ZIP64 or truncated central directory` };
+  }
+
+  const decoder = new TextDecoder();
+  const entries: ZipEntry[] = [];
+  let offset = centralDirectoryOffset;
+  for (let index = 0; index < entryCount; index += 1) {
+    if (offset + 46 > bytes.length || view.getUint32(offset, true) !== ZIP_CENTRAL_DIRECTORY_FILE_HEADER) {
+      return { ok: false, error: `${packageName} has a malformed central directory` };
+    }
+    const compressionMethod = view.getUint16(offset + 10, true);
+    const compressedSize = view.getUint32(offset + 20, true);
+    const uncompressedSize = view.getUint32(offset + 24, true);
+    const filenameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    const localHeaderOffset = view.getUint32(offset + 42, true);
+    const nameStart = offset + 46;
+    const nameEnd = nameStart + filenameLength;
+    if (nameEnd > bytes.length) return { ok: false, error: `${packageName} has a truncated file name` };
+    const name = decoder.decode(bytes.slice(nameStart, nameEnd));
+    if (!name.endsWith('/')) {
+      entries.push({ name, compressionMethod, compressedSize, uncompressedSize, localHeaderOffset });
+    }
+    offset = nameEnd + extraLength + commentLength;
+  }
+  return { ok: true, value: entries };
+}
+
+async function readZipEntry(
+  bytes: Uint8Array,
+  entry: ZipEntry,
+  packageName: string
+): Promise<ManifestInputResult<Uint8Array>> {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const offset = entry.localHeaderOffset;
+  if (offset + 30 > bytes.length || view.getUint32(offset, true) !== ZIP_LOCAL_FILE_HEADER) {
+    return { ok: false, error: `${packageName} has a malformed local file header for ${entry.name}` };
+  }
+  const filenameLength = view.getUint16(offset + 26, true);
+  const extraLength = view.getUint16(offset + 28, true);
+  const dataStart = offset + 30 + filenameLength + extraLength;
+  const dataEnd = dataStart + entry.compressedSize;
+  if (dataEnd > bytes.length) return { ok: false, error: `${packageName} has truncated data for ${entry.name}` };
+  const compressed = bytes.slice(dataStart, dataEnd);
+
+  if (entry.compressionMethod === ZIP_STORED) {
+    if (compressed.byteLength !== entry.uncompressedSize) {
+      return { ok: false, error: `${packageName} has an invalid stored size for ${entry.name}` };
+    }
+    return { ok: true, value: compressed };
+  }
+  if (entry.compressionMethod !== ZIP_DEFLATED) {
+    return { ok: false, error: `${packageName} uses unsupported ZIP compression for ${entry.name}` };
+  }
+  if (typeof DecompressionStream !== 'function') {
+    return { ok: false, error: 'this browser cannot open compressed .dtccpkg archives' };
+  }
+  const stream = new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  const inflated = new Uint8Array(await new Response(stream).arrayBuffer());
+  if (inflated.byteLength !== entry.uncompressedSize) {
+    return { ok: false, error: `${packageName} has an invalid deflated size for ${entry.name}` };
+  }
+  return { ok: true, value: inflated };
+}
+
+function fileFromPackageMember(packageName: string, memberName: string, bytes: Uint8Array): File {
+  const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const file = new File([data], basename(memberName), { type: contentTypeForPath(memberName) });
+  Object.defineProperty(file, 'webkitRelativePath', {
+    value: `${packageName}/${memberName}`,
+    configurable: true,
+  });
+  return file;
+}
+
+function contentTypeForPath(path: string): string {
+  const lower = path.toLowerCase();
+  if (lower.endsWith('.json')) return 'application/json';
+  if (lower.endsWith('.geojson')) return 'application/geo+json';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.mp4')) return 'video/mp4';
+  return '';
 }

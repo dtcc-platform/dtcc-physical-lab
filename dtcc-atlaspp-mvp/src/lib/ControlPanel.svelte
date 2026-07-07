@@ -3,9 +3,11 @@
   import {
     findManifestArtifact,
     isDtccManifestFile,
+    isDtccPackageFile,
     parseDtccManifestText,
     resolveDtccManifestFolder,
     resolveDtccManifestFiles,
+    resolveDtccPackageFiles,
     type DtccManifest,
     type DtccManifestFileSelection,
   } from './dtccManifest';
@@ -800,6 +802,22 @@
         }
       }
 
+      if (files.some(isDtccPackageFile)) {
+        const selection = await resolveDtccPackageFiles(files);
+        if (!selection.ok) {
+          error = selection.error;
+          return;
+        }
+        folderManifestSelections = selection.value;
+        if (selection.value.length === 1) {
+          selectedFolderManifestId = folderManifestId(selection.value[0], 0);
+          await loadFolderManifestSelection(selection.value[0]);
+        } else {
+          selectedFolderManifestId = '';
+        }
+        return;
+      }
+
       if (files.some(isDtccManifestFile)) {
         const selection = await resolveDtccManifestFiles(files);
         if (!selection.ok) {
@@ -822,7 +840,7 @@
 
       const file = files[0];
       if (isMediaArtifactFile(file)) {
-        error = `${file.name} needs its .manifest.json file; pick the containing folder`;
+        error = `${file.name} needs its .dtccpkg or manifest file`;
         return;
       }
       await handleGeoJsonFile(file);
@@ -1104,7 +1122,7 @@
             <div class="font-medium truncate">{dataset.filename}</div>
             <div class="text-xs text-dtcc-muted mt-1">Drop a new file to replace</div>
           {:else}
-            <div class="font-medium">Drop a .geojson or dtcc manifest here</div>
+            <div class="font-medium">Drop a .dtccpkg, .geojson, or dtcc manifest here</div>
           {/if}
           <button
             type="button"
@@ -1124,7 +1142,7 @@
             bind:this={fileInput}
             type="file"
             multiple
-            accept=".geojson,.json,.manifest.json,application/geo+json,application/json"
+            accept=".dtccpkg,.geojson,.json,.manifest.json,application/geo+json,application/json,application/zip"
             aria-label="Dataset files"
             class="sr-only"
             oncancel={resetTimer}

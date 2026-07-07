@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { deflateRawSync } from 'node:zlib';
 import {
   findManifestArtifact,
   isDtccManifestFile,
+  isDtccPackageFile,
   parseDtccManifestText,
   resolveDtccManifestFolder,
   resolveDtccManifestFiles,
+  resolveDtccPackageFiles,
 } from '../src/lib/dtccManifest';
 
 function file(name: string, contents: string, type = ''): File {
@@ -15,6 +18,64 @@ function folderFile(path: string, contents: string, type = ''): File {
   const f = file(path.split('/').pop() ?? path, contents, type);
   Object.defineProperty(f, 'webkitRelativePath', { value: path });
   return f;
+}
+
+function dtccPackage(name: string, entries: Record<string, string>): File {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+
+  for (const [entryName, contents] of Object.entries(entries)) {
+    const nameBytes = Buffer.from(entryName, 'utf8');
+    const data = Buffer.from(contents, 'utf8');
+    const compressed = deflateRawSync(data);
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0, 6);
+    localHeader.writeUInt16LE(8, 8);
+    localHeader.writeUInt32LE(0, 10);
+    localHeader.writeUInt32LE(0, 14);
+    localHeader.writeUInt32LE(compressed.length, 18);
+    localHeader.writeUInt32LE(data.length, 22);
+    localHeader.writeUInt16LE(nameBytes.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0, 8);
+    centralHeader.writeUInt16LE(8, 10);
+    centralHeader.writeUInt32LE(0, 12);
+    centralHeader.writeUInt32LE(0, 16);
+    centralHeader.writeUInt32LE(compressed.length, 20);
+    centralHeader.writeUInt32LE(data.length, 24);
+    centralHeader.writeUInt16LE(nameBytes.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(offset, 42);
+
+    localParts.push(localHeader, nameBytes, compressed);
+    centralParts.push(centralHeader, nameBytes);
+    offset += localHeader.length + nameBytes.length + compressed.length;
+  }
+
+  const centralDirectory = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(Object.keys(entries).length, 8);
+  end.writeUInt16LE(Object.keys(entries).length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20);
+
+  return new File([new Uint8Array(Buffer.concat([...localParts, centralDirectory, end]))], name, { type: 'application/zip' });
 }
 
 const smokeStreamlinesManifest = {
@@ -148,6 +209,38 @@ describe('dtcc manifest input helpers', () => {
     expect(isDtccManifestFile(file('smoke_streamlines.manifest.json', '{}'))).toBe(true);
     expect(isDtccManifestFile(file('manifest.json', '{}'))).toBe(true);
     expect(isDtccManifestFile(file('plain.geojson', '{}'))).toBe(false);
+    expect(isDtccPackageFile(file('smoke_slice.dtccpkg', 'zip'))).toBe(true);
+  });
+
+  it('resolves a .dtccpkg package into its manifest and artifact', async () => {
+    const packageFile = dtccPackage('smoke_slice.dtccpkg', {
+      'manifest.json': JSON.stringify(smokeSliceManifestV2),
+      'artifacts/smoke_slice.png': 'png',
+      'artifacts/smoke_slice.vtu': 'vtu',
+    });
+
+    const result = await resolveDtccPackageFiles([packageFile]);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toHaveLength(1);
+    expect(result.value[0].manifest.title).toBe('Smoke Slice');
+    expect(result.value[0].manifest.file).toBe('artifacts/smoke_slice.png');
+    expect(result.value[0].artifact?.name).toBe('smoke_slice.png');
+    expect(await result.value[0].artifact?.text()).toBe('png');
+  });
+
+  it('resolves a single .dtccpkg through the file-selection helper', async () => {
+    const packageFile = dtccPackage('smoke_slice.dtccpkg', {
+      'manifest.json': JSON.stringify(smokeSliceManifestV2),
+      'artifacts/smoke_slice.png': 'png',
+    });
+
+    const result = await resolveDtccManifestFiles([packageFile]);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.artifact?.name).toBe('smoke_slice.png');
   });
 
   it('reports the exact missing artifact for a lone manifest selection', async () => {

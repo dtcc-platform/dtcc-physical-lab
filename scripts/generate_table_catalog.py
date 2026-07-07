@@ -6,12 +6,16 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import importlib
+import importlib.util
 import json
 import math
 import os
 import re
 import shutil
 import sys
+import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -21,6 +25,17 @@ import yaml
 
 MANIFEST_SCHEMA_VERSION = "dtcc-dataset-manifest-v2"
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+VALID_TIERS = ("core", "dev", "credentialed", "simulation", "expensive")
+INCLUDE_SELECTIONS = {
+    "default": frozenset({"core"}),
+    "core": frozenset({"core"}),
+    "dev": frozenset({"core", "dev"}),
+    "credentialed": frozenset({"core", "credentialed"}),
+    "simulation": frozenset({"core", "simulation"}),
+    "expensive": frozenset({"core", "expensive"}),
+    "all": frozenset(VALID_TIERS),
+}
+TIER_SELECTIONS = INCLUDE_SELECTIONS
 
 
 class SpecError(ValueError):
@@ -58,18 +73,26 @@ class TableModelSpec:
 class ExportSpec:
     format: str
     filename: str
-    media_type: str | None
-    data_kind: str | None
+    media_type: str
+    data_kind: str
     crs: str | None
+    renderer: str | None
+    plot: dict[str, Any]
+    width_px: int
+    height_px: int
+    dpi: int
 
 
 @dataclass(frozen=True)
 class TableSpec:
+    tier: str
     role: str
+    reason: str
     dataset_key_suffix: str
     publish: bool
-    default_enabled: bool
     requires_network: bool
+    required_env: tuple[str, ...]
+    required_python: tuple[str, ...]
     skip_reason: str | None
 
 
@@ -104,10 +127,14 @@ def generate_catalog(
     *,
     root_dir: Path | None = None,
     output_dir: Path | None = None,
+    include: Sequence[str] | str | None = None,
+    tier: Sequence[str] | str | None = None,
     only: Sequence[str] = (),
     skip: Sequence[str] = (),
     clean: bool = False,
     dry_run: bool = False,
+    strict: bool = False,
+    run_expensive: bool = False,
     publish: bool = False,
     upload_url: str | None = None,
     token: str | None = None,
@@ -116,8 +143,18 @@ def generate_catalog(
 ) -> dict[str, Any]:
     """Generate table catalog packages and return a machine-readable report."""
     root = Path(root_dir or Path.cwd()).resolve()
+    resolved_env = os.environ if env is None else env
     model, dataset_specs = load_specs(root, model_id)
-    selected, skipped = _select_dataset_specs(dataset_specs, only=only, skip=skip)
+    selected_tiers = _resolve_tiers(include=include, tier=tier)
+    selected, skipped = _select_dataset_specs(
+        dataset_specs,
+        only=only,
+        skip=skip,
+        tiers=selected_tiers,
+        strict=strict,
+        run_expensive=run_expensive,
+        env=resolved_env,
+    )
     resolved_output_dir = Path(output_dir) if output_dir is not None else model.catalog.output_dir
     if not resolved_output_dir.is_absolute():
         resolved_output_dir = root / resolved_output_dir
@@ -128,7 +165,7 @@ def generate_catalog(
         publish_config = _resolve_publish_config(
             upload_url=upload_url,
             token=token,
-            env=env or os.environ,
+            env=resolved_env,
         )
 
     report: dict[str, Any] = {
@@ -139,6 +176,7 @@ def generate_catalog(
         "output_dir": str(resolved_output_dir),
         "dry_run": dry_run,
         "publish": publish,
+        "selected_tiers": sorted(selected_tiers),
         "planned": [
             _report_planned_item(model, spec)
             for spec in selected
@@ -261,10 +299,19 @@ def _load_dataset_specs(path: Path) -> tuple[TableDatasetSpec, ...]:
             )
         export_data = _required_mapping(raw, "export", where)
         table_data = _required_mapping(raw, "table", where)
-        default_enabled = _optional_bool(table_data, "default_enabled", True, f"{where}.table")
+        tier = _required_str(table_data, "tier", f"{where}.table")
+        if tier not in VALID_TIERS:
+            raise SpecError(
+                f"{where}.table.tier must be one of {', '.join(VALID_TIERS)}, got {tier!r}"
+            )
+        reason = _optional_str(table_data, "reason", f"{where}.table") or _optional_str(
+            table_data,
+            "ux_purpose",
+            f"{where}.table",
+        )
+        if reason is None:
+            raise SpecError(f"{where}.table.reason is required")
         skip_reason = _optional_str(table_data, "skip_reason", f"{where}.table")
-        if not default_enabled and not skip_reason:
-            raise SpecError(f"{where}.table.skip_reason is required when default_enabled is false")
 
         spec = TableDatasetSpec(
             id=dataset_id,
@@ -275,16 +322,24 @@ def _load_dataset_specs(path: Path) -> tuple[TableDatasetSpec, ...]:
             export=ExportSpec(
                 format=_required_str(export_data, "format", f"{where}.export").lower().lstrip("."),
                 filename=_required_filename(export_data, "filename", f"{where}.export"),
-                media_type=_optional_str(export_data, "media_type", f"{where}.export"),
-                data_kind=_optional_str(export_data, "data_kind", f"{where}.export"),
+                media_type=_required_str(export_data, "media_type", f"{where}.export"),
+                data_kind=_required_str(export_data, "data_kind", f"{where}.export"),
                 crs=_optional_str(export_data, "crs", f"{where}.export"),
+                renderer=_optional_str(export_data, "renderer", f"{where}.export"),
+                plot=_optional_mapping(export_data, "plot", f"{where}.export"),
+                width_px=_optional_positive_int(export_data, "width_px", 1920, f"{where}.export"),
+                height_px=_optional_positive_int(export_data, "height_px", 1920, f"{where}.export"),
+                dpi=_optional_positive_int(export_data, "dpi", 160, f"{where}.export"),
             ),
             table=TableSpec(
+                tier=tier,
                 role=_required_str(table_data, "role", f"{where}.table"),
+                reason=reason,
                 dataset_key_suffix=_optional_str(table_data, "dataset_key_suffix", f"{where}.table") or dataset_id,
                 publish=_optional_bool(table_data, "publish", False, f"{where}.table"),
-                default_enabled=default_enabled,
                 requires_network=_optional_bool(table_data, "requires_network", False, f"{where}.table"),
+                required_env=_optional_str_tuple(table_data, "required_env", f"{where}.table"),
+                required_python=_optional_str_tuple(table_data, "required_python", f"{where}.table"),
                 skip_reason=skip_reason,
             ),
         )
@@ -292,11 +347,47 @@ def _load_dataset_specs(path: Path) -> tuple[TableDatasetSpec, ...]:
     return tuple(specs)
 
 
+def _selection_was_provided(value: Sequence[str] | str | None) -> bool:
+    return value is not None and value != () and value != []
+
+
+def _resolve_tiers(
+    *,
+    include: Sequence[str] | str | None = None,
+    tier: Sequence[str] | str | None = None,
+) -> frozenset[str]:
+    if _selection_was_provided(include) and _selection_was_provided(tier):
+        raise SpecError("Use either --include or legacy --tier, not both.")
+    selection = include if _selection_was_provided(include) else tier
+    if not _selection_was_provided(selection):
+        return INCLUDE_SELECTIONS["default"]
+    raw_values = [selection] if isinstance(selection, str) else list(selection)
+    requested: set[str] = set()
+    for raw_value in raw_values:
+        for item in str(raw_value).split(","):
+            normalized = item.strip().lower()
+            if not normalized:
+                continue
+            if normalized not in INCLUDE_SELECTIONS:
+                raise SpecError(
+                    f"Unknown include set {normalized!r}; expected one of "
+                    f"{', '.join(INCLUDE_SELECTIONS)}"
+                )
+            requested.update(INCLUDE_SELECTIONS[normalized])
+    if not requested:
+        return INCLUDE_SELECTIONS["default"]
+    return frozenset(requested)
+
+
 def _select_dataset_specs(
     specs: Sequence[TableDatasetSpec],
     *,
     only: Sequence[str],
     skip: Sequence[str],
+    tiers: frozenset[str],
+    strict: bool,
+    run_expensive: bool,
+    env: Mapping[str, str],
 ) -> tuple[list[TableDatasetSpec], list[dict[str, str]]]:
     by_id = {spec.id: spec for spec in specs}
     unknown_only = sorted(set(only) - set(by_id))
@@ -312,16 +403,87 @@ def _select_dataset_specs(
     skip_set = set(skip)
     for spec in specs:
         if spec.id in skip_set:
-            skipped.append({"id": spec.id, "reason": "explicitly skipped by --skip"})
+            skipped.append(_report_skipped_item(spec, "explicitly skipped by --skip"))
             continue
         if only_set and spec.id not in only_set:
-            skipped.append({"id": spec.id, "reason": "not selected by --only"})
+            skipped.append(_report_skipped_item(spec, "not selected by --only"))
             continue
-        if not only_set and not spec.table.default_enabled:
-            skipped.append({"id": spec.id, "reason": spec.table.skip_reason or "disabled by spec"})
+        if not only_set and spec.table.tier not in tiers:
+            skipped.append(
+                _report_skipped_item(
+                    spec,
+                    f"not included by this selection; use --include {spec.table.tier}",
+                )
+            )
+            continue
+        dependency_issues = _table_dependency_issues(
+            spec,
+            env=env,
+            run_expensive=run_expensive,
+        )
+        if dependency_issues:
+            reason = "; ".join(dependency_issues)
+            if strict:
+                raise GenerationError(f"{spec.id}: {reason}")
+            skipped.append(_report_skipped_item(spec, reason))
             continue
         selected.append(spec)
     return selected, skipped
+
+
+def _table_dependency_issues(
+    spec: TableDatasetSpec,
+    *,
+    env: Mapping[str, str],
+    run_expensive: bool,
+) -> list[str]:
+    issues: list[str] = []
+    expensive_allowed = run_expensive or bool(
+        (env.get("DTCC_EXPENSIVE_TABLE_DATASETS") or "").strip()
+    )
+    if spec.table.tier == "expensive" and not expensive_allowed:
+        issues.append(
+            "expensive tier requires --run-expensive or "
+            "DTCC_EXPENSIVE_TABLE_DATASETS=1"
+        )
+        return issues
+    for variable in spec.table.required_env:
+        if not (env.get(variable) or "").strip():
+            issues.append(f"missing required environment variable {variable}")
+    for module_name in spec.table.required_python:
+        if not _module_spec_exists_without_import(module_name):
+            issues.append(f"missing required Python module {module_name}")
+    return issues
+
+
+def _module_spec_exists_without_import(module_name: str) -> bool:
+    """Return whether a module can be found without importing parent packages."""
+    parts = module_name.split(".")
+    if any(not part for part in parts):
+        return False
+    if len(parts) == 1:
+        try:
+            return importlib.util.find_spec(module_name) is not None
+        except (ImportError, ModuleNotFoundError, ValueError):
+            return False
+
+    fullname = parts[0]
+    try:
+        spec = importlib.machinery.PathFinder.find_spec(fullname)
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
+    for part in parts[1:]:
+        if spec is None or spec.submodule_search_locations is None:
+            return False
+        fullname = f"{fullname}.{part}"
+        try:
+            spec = importlib.machinery.PathFinder.find_spec(
+                fullname,
+                list(spec.submodule_search_locations),
+            )
+        except (ImportError, ModuleNotFoundError, ValueError):
+            return False
+    return spec is not None
 
 
 def _prepare_output_dir(output_dir: Path, *, clean: bool) -> None:
@@ -345,36 +507,332 @@ def _generate_one(
     output_dir: Path,
     dataset_registry: Mapping[str, DatasetFactory] | None,
 ) -> dict[str, Any]:
+    _import_required_modules(spec.table.required_python)
     dataset = _resolve_dataset(spec.dataset, dataset_registry)
     params = copy.deepcopy(spec.params)
     params["bounds"] = list(model.bounds)
 
-    package_dir = output_dir / spec.id
-    obj = dataset(**params)
-    package = obj.export(package_dir, format=spec.export.format)
-    manifest_path = package_dir / "manifest.json"
-    manifest = _read_json_manifest(manifest_path)
-    primary_artifact = _select_primary_artifact(manifest, spec)
-    _rename_primary_artifact(package_dir, primary_artifact, spec.export.filename)
-    _apply_table_manifest_overrides(manifest, model, spec)
-    _write_json(manifest_path, manifest)
-    artifact_paths = _validate_package(
-        package_dir,
-        expected_bounds=list(model.bounds),
-        spec=spec,
-    )
+    archive_path = output_dir / f"{spec.id}.dtccpkg"
+    if archive_path.exists():
+        raise GenerationError(f"Dataset package archive already exists: {archive_path}")
+
+    with tempfile.TemporaryDirectory(prefix=f".{spec.id}-", dir=output_dir) as tmpdir:
+        package_dir = Path(tmpdir) / spec.id
+        obj = dataset(**params)
+        if spec.export.renderer == "plot":
+            _export_plot_media_package(
+                obj,
+                package_dir=package_dir,
+                model=model,
+                spec=spec,
+            )
+        elif spec.export.renderer == "mesh_topdown":
+            _export_mesh_topdown_package(
+                obj,
+                package_dir=package_dir,
+                model=model,
+                spec=spec,
+            )
+        elif spec.export.renderer is not None:
+            raise GenerationError(
+                f"{spec.id} uses unsupported export.renderer {spec.export.renderer!r}"
+            )
+        elif isinstance(obj, (bytes, bytearray, str)):
+            _export_serialized_payload_package(
+                obj,
+                dataset=dataset,
+                params=params,
+                package_dir=package_dir,
+                model=model,
+                spec=spec,
+            )
+        else:
+            export = getattr(obj, "export", None)
+            if not callable(export):
+                raise GenerationError(
+                    f"{spec.id} dataset returned {type(obj).__name__}, which cannot "
+                    "be exported as a Dataset Manifest v2 package"
+                )
+            export(package_dir, format=spec.export.format)
+        manifest_path = package_dir / "manifest.json"
+        manifest = _read_json_manifest(manifest_path)
+        primary_artifact = _select_primary_artifact(manifest, spec)
+        _rename_primary_artifact(package_dir, primary_artifact, spec.export.filename)
+        _apply_table_manifest_overrides(manifest, model, spec)
+        _write_json(manifest_path, manifest)
+        artifact_paths = _validate_package(
+            package_dir,
+            expected_bounds=list(model.bounds),
+            spec=spec,
+        )
+        artifact_names = [path.relative_to(package_dir).as_posix() for path in artifact_paths]
+        _write_package_archive(package_dir, archive_path=archive_path)
 
     dataset_key = f"{model.catalog.dataset_key_prefix}-{spec.dataset_key_suffix}"
     return {
         "id": spec.id,
         "dataset": spec.dataset,
         "dataset_key": dataset_key,
-        "package_dir": str(package_dir),
-        "manifest_path": str(manifest_path),
-        "artifacts": [str(path) for path in artifact_paths],
+        "package_format": "dtccpkg",
+        "package_path": str(archive_path),
+        "archive_path": str(archive_path),
+        "manifest": "manifest.json",
+        "artifacts": artifact_names,
         "publish_requested": spec.table.publish,
         "table_role": spec.table.role,
+        "tier": spec.table.tier,
     }
+
+
+def _export_serialized_payload_package(
+    payload: bytes | bytearray | str,
+    *,
+    dataset: DatasetFactory,
+    params: Mapping[str, Any],
+    package_dir: Path,
+    model: TableModelSpec,
+    spec: TableDatasetSpec,
+) -> None:
+    validate = getattr(dataset, "validate", None)
+    create_context = getattr(dataset, "create_context", None)
+    if not callable(validate) or not callable(create_context):
+        raise GenerationError(
+            f"{spec.id} returned serialized {type(payload).__name__} data, but "
+            "the dataset does not expose validate/create_context for manifest generation"
+        )
+
+    args = validate(dict(params))
+    context = create_context(args)
+
+    artifact_dir = package_dir / "artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=False)
+    artifact_path = artifact_dir / spec.export.filename
+    if isinstance(payload, str):
+        artifact_path.write_text(payload, encoding="utf-8")
+    else:
+        artifact_path.write_bytes(bytes(payload))
+
+    from dtcc_core.datasets.schema import DatasetArtifact
+
+    artifact = DatasetArtifact(
+        path=artifact_path.relative_to(package_dir).as_posix(),
+        role="primary",
+        format=spec.export.format,
+        media_type=spec.export.media_type,
+        data_kind=spec.export.data_kind,
+        crs=spec.export.crs,
+        bounds=list(model.bounds),
+        size=artifact_path.stat().st_size,
+        sha256=_sha256_file(artifact_path),
+    )
+    manifest = context.manifest(artifacts=[artifact]).model_dump(mode="json")
+    _write_json(package_dir / "manifest.json", manifest)
+
+
+def _export_plot_media_package(
+    obj,
+    *,
+    package_dir: Path,
+    model: TableModelSpec,
+    spec: TableDatasetSpec,
+) -> None:
+    if spec.export.format != "png":
+        raise GenerationError(
+            f"{spec.id} export.renderer='plot' only supports format='png'"
+        )
+    context = getattr(obj, "dataset_context", None)
+    if context is None:
+        raise GenerationError(
+            f"{spec.id} cannot render a plot package because the dataset result "
+            "has no DatasetContext."
+        )
+
+    artifact_dir = package_dir / "artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=False)
+    artifact_path = artifact_dir / spec.export.filename
+    _write_plot_png(obj, artifact_path, model=model, spec=spec)
+    _write_media_manifest(obj, artifact_path, model=model, spec=spec)
+
+
+def _export_mesh_topdown_package(
+    obj,
+    *,
+    package_dir: Path,
+    model: TableModelSpec,
+    spec: TableDatasetSpec,
+) -> None:
+    if spec.export.format != "png":
+        raise GenerationError(
+            f"{spec.id} export.renderer='mesh_topdown' only supports format='png'"
+        )
+    context = getattr(obj, "dataset_context", None)
+    if context is None:
+        raise GenerationError(
+            f"{spec.id} cannot render a mesh package because the dataset result "
+            "has no DatasetContext."
+        )
+
+    artifact_dir = package_dir / "artifacts"
+    artifact_dir.mkdir(parents=True, exist_ok=False)
+    artifact_path = artifact_dir / spec.export.filename
+    _write_mesh_topdown_png(obj, artifact_path, model=model, spec=spec)
+    _write_media_manifest(obj, artifact_path, model=model, spec=spec)
+
+
+def _write_media_manifest(
+    obj,
+    artifact_path: Path,
+    *,
+    model: TableModelSpec,
+    spec: TableDatasetSpec,
+) -> None:
+    from dtcc_core.datasets.schema import DatasetArtifact
+
+    package_dir = artifact_path.parent.parent
+    artifact = DatasetArtifact(
+        path=artifact_path.relative_to(package_dir).as_posix(),
+        role="primary",
+        format=spec.export.format,
+        media_type=spec.export.media_type,
+        data_kind=spec.export.data_kind,
+        crs=spec.export.crs,
+        bounds=list(model.bounds),
+        size=artifact_path.stat().st_size,
+        sha256=_sha256_file(artifact_path),
+    )
+    manifest = obj.dataset_context.manifest(artifacts=[artifact]).model_dump(mode="json")
+    _write_json(package_dir / "manifest.json", manifest)
+
+
+def _write_plot_png(
+    obj,
+    path: Path,
+    *,
+    model: TableModelSpec,
+    spec: TableDatasetSpec,
+) -> None:
+    _ensure_mpl_config_dir()
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    figure = Figure(
+        figsize=(spec.export.width_px / spec.export.dpi, spec.export.height_px / spec.export.dpi),
+        dpi=spec.export.dpi,
+        facecolor="#101214",
+    )
+    FigureCanvasAgg(figure)
+    ax = figure.add_axes([0, 0, 1, 1])
+    ax.set_facecolor("#101214")
+
+    plot = getattr(obj, "plot", None)
+    if not callable(plot):
+        raise GenerationError(f"{spec.id} result has no plot() method for PNG export")
+    plot_kwargs = copy.deepcopy(spec.export.plot)
+    plot_kwargs.setdefault("presentation", False)
+    plot_kwargs.setdefault("show", False)
+    plot_kwargs.setdefault("theme", "dark")
+    plot_kwargs.setdefault("ax", ax)
+    plot(**plot_kwargs)
+    _strip_table_plot_chrome(figure, ax, model.bounds)
+    figure.savefig(
+        path,
+        format="png",
+        dpi=spec.export.dpi,
+        facecolor=figure.get_facecolor(),
+        edgecolor="none",
+    )
+
+
+def _write_mesh_topdown_png(
+    obj,
+    path: Path,
+    *,
+    model: TableModelSpec,
+    spec: TableDatasetSpec,
+) -> None:
+    _ensure_mpl_config_dir()
+    import numpy as np
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.collections import PolyCollection
+    from matplotlib.figure import Figure
+
+    vertices = np.asarray(getattr(obj, "vertices", []), dtype=float)
+    faces = np.asarray(getattr(obj, "faces", []), dtype=int)
+    if vertices.ndim != 2 or vertices.shape[1] < 2:
+        raise GenerationError(f"{spec.id} mesh result has invalid vertices")
+    if faces.ndim != 2 or faces.shape[1] < 3:
+        raise GenerationError(f"{spec.id} mesh result has invalid faces")
+
+    figure = Figure(
+        figsize=(spec.export.width_px / spec.export.dpi, spec.export.height_px / spec.export.dpi),
+        dpi=spec.export.dpi,
+        facecolor="#101214",
+    )
+    FigureCanvasAgg(figure)
+    ax = figure.add_axes([0, 0, 1, 1])
+    ax.set_facecolor("#101214")
+
+    polygons = vertices[faces[:, :3], :2]
+    z_values = vertices[faces[:, :3], 2].mean(axis=1) if vertices.shape[1] >= 3 else None
+    collection = PolyCollection(
+        polygons,
+        edgecolors="#263236",
+        linewidths=0.12,
+        closed=True,
+    )
+    if z_values is None:
+        collection.set_facecolor("#7fc7bd")
+    else:
+        collection.set_array(z_values)
+        collection.set_cmap("viridis")
+    ax.add_collection(collection)
+    _strip_table_plot_chrome(figure, ax, model.bounds)
+    figure.savefig(
+        path,
+        format="png",
+        dpi=spec.export.dpi,
+        facecolor=figure.get_facecolor(),
+        edgecolor="none",
+    )
+
+
+def _strip_table_plot_chrome(figure, ax, bounds: tuple[float, float, float, float]) -> None:
+    for other_ax in list(figure.axes):
+        if other_ax is not ax:
+            figure.delaxes(other_ax)
+    legend = ax.get_legend()
+    if legend is not None:
+        legend.remove()
+    for text in list(ax.texts):
+        text.set_visible(False)
+    ax.set_title("")
+    ax.set_xlim(bounds[0], bounds[2])
+    ax.set_ylim(bounds[1], bounds[3])
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_axis_off()
+    figure.subplots_adjust(left=0, right=1, bottom=0, top=1)
+
+
+def _write_package_archive(package_dir: Path, *, archive_path: Path) -> Path:
+    if archive_path.exists():
+        raise GenerationError(f"Dataset package archive already exists: {archive_path}")
+    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for file_path in sorted(path for path in package_dir.rglob("*") if path.is_file()):
+            archive.write(file_path, file_path.relative_to(package_dir).as_posix())
+    return archive_path
+
+
+def _ensure_mpl_config_dir() -> None:
+    if os.environ.get("MPLCONFIGDIR"):
+        return
+    path = Path(os.environ.get("TMPDIR") or "/tmp") / "dtcc-table-matplotlib"
+    path.mkdir(parents=True, exist_ok=True)
+    os.environ["MPLCONFIGDIR"] = str(path)
+
+
+def _import_required_modules(module_names: Sequence[str]) -> None:
+    for module_name in module_names:
+        importlib.import_module(module_name)
 
 
 def _resolve_dataset(name: str, registry: Mapping[str, DatasetFactory] | None) -> DatasetFactory:
@@ -562,21 +1020,64 @@ def _publish_package(
 ) -> dict[str, Any]:
     from dtcc_core.datasets.publish import DatasetUploadClient
 
-    manifest_path = Path(str(generated["manifest_path"]))
-    manifest = _read_json_manifest(manifest_path)
-    files = tuple(Path(path) for path in generated["artifacts"])
-    client = DatasetUploadClient.from_config(upload_url=upload_url, token=token)
-    publication = client.upload_package(
-        dataset_key=dataset_key,
-        manifest_path=manifest_path,
-        files=files,
-        manifest=manifest,
-    )
+    archive_path = Path(str(generated["archive_path"]))
+    if not archive_path.is_file():
+        raise GenerationError(f"Generated .dtccpkg does not exist: {archive_path}")
+    with tempfile.TemporaryDirectory(prefix="dtcc-publish-") as tmpdir:
+        package_dir = Path(tmpdir) / _safe_archive_stem(archive_path.stem)
+        _extract_package_archive(archive_path, package_dir)
+        manifest_path = package_dir / "manifest.json"
+        manifest = _read_json_manifest(manifest_path)
+        artifact_paths = _artifact_paths_from_manifest(package_dir, manifest)
+        client = DatasetUploadClient.from_config(upload_url=upload_url, token=token)
+        publication = client.upload_package(
+            dataset_key=dataset_key,
+            manifest_path=manifest_path,
+            files=artifact_paths,
+            manifest=manifest,
+        )
     return {
         "id": generated["id"],
         "dataset_key": publication.dataset_key,
         "version_number": publication.version_number,
     }
+
+
+def _extract_package_archive(archive_path: Path, package_dir: Path) -> None:
+    package_dir.mkdir(parents=True, exist_ok=False)
+    with zipfile.ZipFile(archive_path) as archive:
+        members = archive.infolist()
+        if not any(member.filename == "manifest.json" and not member.is_dir() for member in members):
+            raise GenerationError(f"{archive_path} is missing manifest.json")
+        for member in members:
+            if member.is_dir():
+                continue
+            if not _safe_relative_path(member.filename):
+                raise GenerationError(
+                    f"{archive_path} contains unsafe member {member.filename!r}"
+                )
+            target = package_dir / member.filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as source, target.open("wb") as destination:
+                shutil.copyfileobj(source, destination)
+
+
+def _artifact_paths_from_manifest(package_dir: Path, manifest: Mapping[str, Any]) -> tuple[Path, ...]:
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        raise GenerationError("Dataset Manifest v2 must contain non-empty artifacts")
+    paths = []
+    for index, artifact in enumerate(artifacts):
+        if not isinstance(artifact, dict):
+            raise GenerationError(f"Dataset Manifest v2 artifact {index} must be an object")
+        path_value = artifact.get("path")
+        if not isinstance(path_value, str):
+            raise GenerationError(f"Dataset Manifest v2 artifact {index} must include path")
+        artifact_path = _resolve_package_path(package_dir, path_value)
+        if not artifact_path.is_file():
+            raise GenerationError(f"Dataset Manifest v2 references missing artifact {path_value}")
+        paths.append(artifact_path)
+    return tuple(paths)
 
 
 def _resolve_publish_config(
@@ -604,16 +1105,33 @@ def _report_planned_item(model: TableModelSpec, spec: TableDatasetSpec) -> dict[
     return {
         "id": spec.id,
         "dataset": spec.dataset,
+        "tier": spec.table.tier,
+        "reason": spec.table.reason,
         "dataset_key": f"{model.catalog.dataset_key_prefix}-{spec.dataset_key_suffix}",
         "format": spec.export.format,
         "filename": spec.export.filename,
         "table_role": spec.table.role,
         "publish_requested": spec.table.publish,
         "requires_network": spec.table.requires_network,
+        "required_env": list(spec.table.required_env),
+        "required_python": list(spec.table.required_python),
+        "skip_reason": spec.table.skip_reason,
         "media_type": spec.export.media_type,
         "data_kind": spec.export.data_kind,
         "crs": spec.export.crs,
     }
+
+
+def _report_skipped_item(spec: TableDatasetSpec, reason: str) -> dict[str, str]:
+    item = {
+        "id": spec.id,
+        "tier": spec.table.tier,
+        "reason": reason,
+        "table_reason": spec.table.reason,
+    }
+    if spec.table.skip_reason:
+        item["skip_reason"] = spec.table.skip_reason
+    return item
 
 
 def _required_mapping(data: Mapping[str, Any], key: str, where: str) -> dict[str, Any]:
@@ -657,6 +1175,47 @@ def _optional_bool(data: Mapping[str, Any], key: str, default: bool, where: str)
     value = data[key]
     if not isinstance(value, bool):
         raise SpecError(f"{where}.{key} must be true or false")
+    return value
+
+
+def _optional_str_tuple(data: Mapping[str, Any], key: str, where: str) -> tuple[str, ...]:
+    if key not in data or data[key] is None:
+        return ()
+    value = data[key]
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, list):
+        items = value
+    else:
+        raise SpecError(f"{where}.{key} must be a string or list of strings")
+    result = []
+    for index, item in enumerate(items):
+        if not isinstance(item, str) or not item.strip():
+            raise SpecError(f"{where}.{key}[{index}] must be a non-empty string")
+        result.append(item.strip())
+    return tuple(result)
+
+
+def _optional_mapping(data: Mapping[str, Any], key: str, where: str) -> dict[str, Any]:
+    if key not in data or data[key] is None:
+        return {}
+    value = data[key]
+    if not isinstance(value, dict):
+        raise SpecError(f"{where}.{key} must be a mapping")
+    return dict(value)
+
+
+def _optional_positive_int(
+    data: Mapping[str, Any],
+    key: str,
+    default: int,
+    where: str,
+) -> int:
+    if key not in data or data[key] is None:
+        return default
+    value = data[key]
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise SpecError(f"{where}.{key} must be a positive integer")
     return value
 
 
@@ -713,6 +1272,14 @@ def _safe_relative_path(value: str) -> bool:
     return all(part not in {"", ".", ".."} and not part.startswith(".") for part in value.split("/"))
 
 
+def _safe_archive_stem(value: str) -> str:
+    stem = str(value).strip().replace(" ", "_").replace("-", "_").lower()
+    sanitized = "".join(char if char.isalnum() or char == "_" else "_" for char in stem)
+    while "__" in sanitized:
+        sanitized = sanitized.replace("__", "_")
+    return sanitized.strip("_") or "dataset_package"
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -729,6 +1296,10 @@ def _build_parser() -> argparse.ArgumentParser:
     examples = """examples:
   python scripts/generate_table_catalog.py gbg_500m_2026_07
   python scripts/generate_table_catalog.py gbg_500m_2026_07 --dry-run
+  python scripts/generate_table_catalog.py gbg_500m_2026_07 --include dev --clean
+  python scripts/generate_table_catalog.py gbg_500m_2026_07 --include credentialed --strict --dry-run
+  python scripts/generate_table_catalog.py gbg_500m_2026_07 --include simulation --dry-run
+  python scripts/generate_table_catalog.py gbg_500m_2026_07 --include expensive --run-expensive --clean
   python scripts/generate_table_catalog.py gbg_500m_2026_07 --only calibration_grid --clean
   DTCC_UPLOAD_URL=https://upload.example DTCC_UPLOAD_TOKEN=... python scripts/generate_table_catalog.py gbg_500m_2026_07 --publish
 """
@@ -742,10 +1313,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("model_id", help="Table model id under table_models/.")
     parser.add_argument("--output-dir", metavar="PATH", help="Override catalog output directory.")
+    parser.add_argument("--include", action="append", default=[], metavar="SET", help="Include default, dev, credentialed, simulation, expensive, or all. May be repeated or comma-separated. Default: default.")
+    parser.add_argument("--tier", action="append", default=[], metavar="SET", help="Legacy alias for --include.")
     parser.add_argument("--only", action="append", default=[], metavar="ID", help="Generate only one dataset id. May be repeated.")
     parser.add_argument("--skip", action="append", default=[], metavar="ID", help="Skip one dataset id. May be repeated.")
     parser.add_argument("--clean", action="store_true", help="Delete an existing non-empty output directory before generation.")
     parser.add_argument("--dry-run", action="store_true", help="Validate specs and print the planned actions without running datasets.")
+    parser.add_argument("--strict", action="store_true", help="Fail instead of skipping selected entries with missing dependencies or credentials.")
+    parser.add_argument("--run-expensive", action="store_true", help="Allow selected expensive-tier entries to run.")
     parser.add_argument("--publish", action="store_true", help="Publish generated packages after validation.")
     parser.add_argument("--upload-url", help="Upload endpoint for --publish. Defaults to DTCC_UPLOAD_URL.")
     parser.add_argument("--token", help="Upload token for --publish. Defaults to DTCC_UPLOAD_TOKEN.")
@@ -759,10 +1334,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = generate_catalog(
             args.model_id,
             output_dir=Path(args.output_dir) if args.output_dir else None,
+            include=args.include,
+            tier=args.tier,
             only=args.only,
             skip=args.skip,
             clean=args.clean,
             dry_run=args.dry_run,
+            strict=args.strict,
+            run_expensive=args.run_expensive,
             publish=args.publish,
             upload_url=args.upload_url,
             token=args.token,

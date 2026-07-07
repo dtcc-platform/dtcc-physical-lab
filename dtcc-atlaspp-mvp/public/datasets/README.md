@@ -29,10 +29,13 @@ copy it to `dist/datasets/online-config.json` afterwards. The projector reads
 it at startup and never persists it, so deleting or rotating the file takes
 effect on the next page load.
 
-To ingest `dtcc-core` sidecar manifests, run:
+To ingest `.dtccpkg` dataset packages, run:
 
 ```bash
-npm run catalog:ingest -- /path/to/dtcc-core/exports
+npm run catalog:ingest -- /path/to/table_catalog
 ```
 
-The command scans recursively for `*.manifest.json`, copies referenced GeoJSON, PNG, and MP4 artifacts into this directory, and upserts matching entries in `catalog.json`. Unsupported dtcc-core formats are skipped with a warning.
+The command scans recursively for `.dtccpkg` archives and legacy
+`*.manifest.json` sidecars, copies referenced GeoJSON, PNG, and MP4 artifacts
+into this directory, and upserts matching entries in `catalog.json`.
+Unsupported formats are skipped with a warning.

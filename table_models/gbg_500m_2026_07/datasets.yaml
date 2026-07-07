@@ -1,59 +1,27 @@
 datasets:
   - id: calibration_grid
     dataset: calibration_grid
-    title: Calibration Grid GeoJSON
-    description: Deterministic 12.5 m coordinate grid over the table bounds, with 41 lines per axis for projector alignment.
+    title: Calibration Grid PNG
+    description: Deterministic rendered 12.5 m coordinate grid over the table bounds for projector alignment.
     params:
       divisions: 40
       crs: EPSG:3006
     export:
-      format: geojson
-      filename: calibration_grid.geojson
-      media_type: application/geo+json
-      data_kind: vector
+      format: png
+      filename: calibration_grid.png
+      media_type: image/png
+      data_kind: raster
       crs: EPSG:3006
+      renderer: plot
+      plot:
+        color: "#4cc9f0"
+        linewidth: 0.55
     table:
+      tier: core
       role: alignment
-      dataset_key_suffix: calibration-grid-geojson
+      reason: Validates projector alignment, bounds, CRS, and physical scale before any thematic layer is shown.
+      dataset_key_suffix: calibration-grid-png
       publish: true
-
-  - id: smoke_field_vtu
-    dataset: smoke
-    title: Smoke Field VTU
-    description: Local-only synthetic smoke volume field for inspecting velocity, speed, and pressure values outside the table projector path.
-    params:
-      product: field
-      resolution: 17
-    export:
-      format: vtu
-      filename: smoke_field.vtu
-      media_type: application/vnd.vtk.vtu+xml
-      data_kind: mesh
-    table:
-      role: local_reference
-      dataset_key_suffix: smoke-field-vtu
-      publish: false
-      default_enabled: false
-      skip_reason: VTU volume fields are local inspection artifacts and are not useful in the projector-table UI.
-
-  - id: smoke_field_pb
-    dataset: smoke
-    title: Smoke Field Protobuf
-    description: Local-only synthetic smoke protobuf package for Dataset v2 serialization checks; not a physical CFD result.
-    params:
-      product: field
-      resolution: 17
-    export:
-      format: pb
-      filename: smoke_field.pb
-      media_type: application/x-protobuf
-      data_kind: protobuf
-    table:
-      role: local_reference
-      dataset_key_suffix: smoke-field-pb
-      publish: false
-      default_enabled: false
-      skip_reason: Protobuf volume fields are local serialization checks and are not useful in the projector-table UI.
 
   - id: smoke_slice_geojson
     dataset: smoke
@@ -72,9 +40,12 @@ datasets:
       data_kind: vector
       crs: EPSG:3006
     table:
-      role: overlay
+      tier: dev
+      role: raw_overlay
+      reason: Keeps the raw synthetic scalar vector geometry available for Atlas/debug inspection outside the table default.
       dataset_key_suffix: smoke-slice-geojson
-      publish: true
+      publish: false
+      skip_reason: Raw vector/debug artifact; table default publishes rendered media packages.
 
   - id: smoke_streamlines_geojson
     dataset: smoke
@@ -92,9 +63,12 @@ datasets:
       data_kind: vector
       crs: EPSG:3006
     table:
-      role: overlay
+      tier: dev
+      role: raw_overlay
+      reason: Keeps the raw synthetic streamline geometry available for Atlas/debug inspection outside the table default.
       dataset_key_suffix: smoke-streamlines-geojson
-      publish: true
+      publish: false
+      skip_reason: Raw vector/debug artifact; table default publishes rendered media packages.
 
   - id: smoke_slice
     dataset: smoke
@@ -115,7 +89,9 @@ datasets:
       data_kind: raster
       crs: EPSG:3006
     table:
+      tier: core
       role: projection
+      reason: Exercises full-table raster projection with deterministic synthetic data.
       dataset_key_suffix: smoke-slice-png
       publish: true
 
@@ -137,19 +113,274 @@ datasets:
       data_kind: raster
       crs: EPSG:3006
     table:
+      tier: core
       role: projection
+      reason: Exercises dense raster flow visualization on the physical table.
       dataset_key_suffix: smoke-streamlines-png
       publish: true
+
+  - id: smoke_field_vtu
+    dataset: smoke
+    title: Smoke Field VTU
+    description: Local-only synthetic smoke volume field for inspecting velocity, speed, and pressure values outside the table projector path.
+    params:
+      product: field
+      resolution: 17
+    export:
+      format: vtu
+      filename: smoke_field.vtu
+      media_type: application/vnd.vtk.vtu+xml
+      data_kind: mesh
+    table:
+      tier: dev
+      role: local_reference
+      reason: Exercises local mesh/field package inspection and Dataset v2 manifest metadata outside the projector UI.
+      dataset_key_suffix: smoke-field-vtu
+      publish: false
+      skip_reason: Local reference artifact; generated only for development inspection.
+
+  - id: smoke_field_pb
+    dataset: smoke
+    title: Smoke Field Protobuf
+    description: Local-only synthetic smoke protobuf package for Dataset v2 serialization checks; not a physical CFD result.
+    params:
+      product: field
+      resolution: 17
+    export:
+      format: pb
+      filename: smoke_field.pb
+      media_type: application/x-protobuf
+      data_kind: protobuf
+    table:
+      tier: dev
+      role: local_reference
+      reason: Exercises protobuf package generation and manifest validation for a deterministic volume dataset.
+      dataset_key_suffix: smoke-field-pb
+      publish: false
+      skip_reason: Local reference artifact; generated only for development inspection.
+
+  - id: building_footprints
+    dataset: building_footprints
+    title: Building Footprints PNG
+    description: Rendered building footprint context over the table bounds; source and license notes should be reviewed before release.
+    params:
+      source: LM
+      crs: EPSG:3006
+    export:
+      format: png
+      filename: building_footprints.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
+      renderer: plot
+      plot:
+        edgecolor: "#7fd1c9"
+        linewidth: 0.18
+        alpha: 0.78
+    table:
+      tier: core
+      role: alignment_context
+      reason: Exercises real footprint alignment against the printed city model while keeping source-term review visible.
+      dataset_key_suffix: building-footprints-png
+      publish: true
+      requires_network: true
+
+  - id: roads
+    dataset: roads
+    title: Roads PNG
+    description: Rendered OpenStreetMap road network over the table bounds for table-side line rendering tests.
+    params:
+      source: OSM
+    export:
+      format: png
+      filename: roads.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
+      renderer: plot
+      plot:
+        column: highway
+        linewidth: 0.55
+        legend: false
+    table:
+      tier: core
+      role: network_context
+      reason: Exercises road-network context and line styling for Atlas/table clients.
+      dataset_key_suffix: roads-png
+      publish: true
+      requires_network: true
+
+  - id: space_syntax
+    dataset: space_syntax
+    title: Space Syntax PNG
+    description: Rendered road-network space syntax measures derived from OSM roads for thematic table styling.
+    params:
+      source: OSM
+      cost: topological
+      measures:
+        - connectivity
+        - integration
+        - choice
+    export:
+      format: png
+      filename: space_syntax.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
+      renderer: plot
+      plot:
+        column: space_syntax_integration
+        linewidth: 0.55
+        legend: false
+    table:
+      tier: core
+      role: network_analysis
+      reason: Exercises analysis attributes, color-by-field UX, legends, and warnings for derived non-validated metrics.
+      dataset_key_suffix: space-syntax-png
+      publish: true
+      requires_network: true
+
+  - id: deso_population
+    dataset: deso
+    title: DeSO Population PNG
+    description: Rendered DeSO statistical areas with population, car, and employment context for the table bounds; SCB source terms require review.
+    params:
+      year: 2025
+      statistics:
+        - population
+        - cars
+        - employment
+    export:
+      format: png
+      filename: deso_population.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
+      renderer: plot
+      plot:
+        column: population_total
+        legend: false
+    table:
+      tier: core
+      role: socioeconomic_context
+      reason: Exercises polygon choropleth UX, socioeconomic legends, and area-level limitation messaging.
+      dataset_key_suffix: deso-population-png
+      publish: true
+      requires_network: true
+
+  - id: weather_temperature
+    dataset: weather
+    title: Weather Temperature PNG
+    description: Rendered latest SMHI air-temperature station snapshot for table weather context over the printed model bounds.
+    params:
+      strict_live: true
+      parameters:
+        - temperature
+    export:
+      format: png
+      filename: weather_temperature.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
+      renderer: plot
+      plot:
+        field_name: air_temperature
+        size: 52.0
+    table:
+      tier: core
+      role: station_context
+      reason: Exercises sparse station points, sensor metadata, and live-observation freshness warnings.
+      dataset_key_suffix: weather-temperature-png
+      publish: true
+      requires_network: true
+
+  - id: air_quality_no2
+    dataset: air_quality
+    title: Air Quality NO2 PNG
+    description: Rendered latest SMHI NO2 station snapshot for air-quality context over the printed model bounds.
+    params:
+      strict_live: true
+      phenomenon: NO2
+    export:
+      format: png
+      filename: air_quality_no2.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
+      renderer: plot
+      plot:
+        field_name: NO2
+        size: 52.0
+    table:
+      tier: core
+      role: station_context
+      reason: Exercises pollutant station points, stale-value warnings, and sparse-network limitation messaging.
+      dataset_key_suffix: air-quality-no2-png
+      publish: true
+      requires_network: true
+
+  - id: hydrology_discharge
+    dataset: hydrology
+    title: Hydrology Discharge PNG
+    description: Rendered latest SMHI daily-discharge station snapshot for hydrology context over the printed model bounds.
+    params:
+      strict_live: true
+      parameters:
+        - discharge
+    export:
+      format: png
+      filename: hydrology_discharge.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
+      renderer: plot
+      plot:
+        field_name: discharge_daily
+        size: 52.0
+    table:
+      tier: core
+      role: station_context
+      reason: Exercises hydrology station points and unit-aware sensor presentation in the table UI.
+      dataset_key_suffix: hydrology-discharge-png
+      publish: true
+      requires_network: true
+
+  - id: ocean_sea_level
+    dataset: ocean
+    title: Ocean Sea Level PNG
+    description: Rendered latest SMHI sea-level station snapshot for coastal context over the printed model bounds.
+    params:
+      strict_live: true
+      parameters:
+        - sea_level
+    export:
+      format: png
+      filename: ocean_sea_level.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
+      renderer: plot
+      plot:
+        field_name: sea_level
+        size: 52.0
+    table:
+      tier: core
+      role: station_context
+      reason: Exercises coastal/ocean station context and makes sparse station coverage visible during UX work.
+      dataset_key_suffix: ocean-sea-level-png
+      publish: true
+      requires_network: true
 
   - id: smoke_streamlines_mp4
     dataset: smoke
     title: Smoke Streamlines MP4
-    description: Optional synthetic smoke streamline MP4 loop for motion UX checks; disabled by default because video encoding is extra runtime surface.
+    description: Synthetic smoke streamline MP4 loop for table motion playback UX checks; not validated CFD.
     params:
       product: streamlines
       streamline_count: 48
       streamline_steps: 150
       profile: table
+      format: mp4
       width: 1920
       height: 1920
       fps: 30
@@ -162,29 +393,188 @@ datasets:
       data_kind: video
       crs: EPSG:3006
     table:
+      tier: core
       role: projection_video
+      reason: Exercises table motion playback in the default media package set.
       dataset_key_suffix: smoke-streamlines-mp4
       publish: true
-      default_enabled: false
-      skip_reason: MP4 rendering is intentionally opt-in because it requires video encoding support.
 
-  - id: footprints_geojson
-    dataset: building_footprints
-    title: Building Footprints GeoJSON
-    description: Cached/live building footprints over the table bounds for physical alignment; source and license review required before default publishing.
+  - id: trees
+    dataset: trees
+    title: Trees PNG
+    description: Rendered point-cloud-derived tree detections over the table bounds; useful vegetation context but source quality and runtime need review.
     params:
-      source: LM
-      crs: EPSG:3006
+      tree_type: urban
     export:
-      format: geojson
-      filename: building_footprints.geojson
-      media_type: application/geo+json
-      data_kind: vector
+      format: png
+      filename: trees.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
+      renderer: plot
+      plot:
+        column: height
+        size: 18.0
+    table:
+      tier: core
+      role: vegetation_context
+      reason: Exercises vegetation point/circle context and derived-data warnings after point-cloud runtime is intentionally selected.
+      dataset_key_suffix: trees-png
+      publish: true
+      requires_network: true
+
+  - id: terrain_surface_mesh
+    dataset: terrain_surface_mesh
+    title: Terrain Surface Mesh PNG
+    description: Rendered point-cloud-derived terrain surface mesh for table mesh-preview experiments.
+    params:
+      max_mesh_size: 25.0
+      smoothing: 1
+    export:
+      format: png
+      filename: terrain_surface_mesh.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
+      renderer: mesh_topdown
+    table:
+      tier: core
+      role: terrain_context
+      reason: Exercises mesh artifact handling only after point-cloud and meshing cost are intentionally accepted.
+      dataset_key_suffix: terrain-surface-mesh-png
+      publish: true
+      requires_network: true
+
+  - id: city_surface_mesh
+    dataset: city_surface_mesh
+    title: City Surface Mesh PNG
+    description: Rendered terrain-and-building surface mesh over the printed model bounds for table mesh-preview experiments.
+    params:
+      max_mesh_size: 25.0
+      min_building_detail: 1.0
+    export:
+      format: png
+      filename: city_surface_mesh.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
+      renderer: mesh_topdown
+    table:
+      tier: core
+      role: city_mesh_context
+      reason: Exercises city surface mesh context as a rendered table media package.
+      dataset_key_suffix: city-surface-mesh-png
+      publish: true
+      requires_network: true
+
+  - id: transit_vehicles_buses
+    dataset: transit_vehicles
+    title: Live Bus Positions PNG
+    description: Rendered live Västtrafik bus snapshot for motion/position UX checks over the printed model bounds.
+    params:
+      provider: vasttrafik
+      strict_live: true
+      modes:
+        - bus
+      max_vehicles: 200
+      include_static_metadata: false
+    export:
+      format: png
+      filename: transit_vehicles_buses.png
+      media_type: image/png
+      data_kind: raster
+      crs: EPSG:3006
+      renderer: plot
+      plot:
+        column: mode
+        size: 52.0
+        show_direction: true
+    table:
+      tier: core
+      role: live_mobility
+      reason: Exercises live moving-point UX, stale-position warnings, and credential failure messaging.
+      dataset_key_suffix: transit-vehicles-buses-png
+      publish: true
+      requires_network: true
+      required_env:
+        - VASTTRAFIK_AUTHENTICATION_KEY
+
+  - id: traffic_simulation_pb
+    dataset: traffic_simulation
+    title: Traffic Simulation Protobuf
+    description: Static synthetic traffic assignment over roads and DeSO demand; useful for UX exploration but not calibrated counts.
+    params:
+      max_iterations: 20
+      format: pb
+    export:
+      format: pb
+      filename: traffic_simulation.pb
+      media_type: application/x-protobuf
+      data_kind: protobuf
       crs: EPSG:3006
     table:
-      role: alignment_context
-      dataset_key_suffix: footprints-geojson
+      tier: simulation
+      role: simulation_network
+      reason: Exercises simulation-themed network attributes and non-calibrated-model warnings when dtcc-sim is installed.
+      dataset_key_suffix: traffic-simulation-pb
       publish: true
-      default_enabled: false
       requires_network: true
-      skip_reason: Default generation stays disabled because footprint output depends on provider/cache availability and source-term review.
+      required_python:
+        - dtcc_sim.datasets
+      skip_reason: Requires dtcc-sim and live/cache roads plus DeSO inputs; never part of default generation.
+
+  - id: urban_heat_simulation_xdmf
+    dataset: urban_heat_simulation
+    title: Urban Heat Simulation XDMF
+    description: Expensive FEniCS urban heat scenario field for local solver/table artifact experiments.
+    params:
+      mesh_max_mesh_size: 25.0
+      mesh_domain_height: 80.0
+      format: xdmf
+    export:
+      format: xdmf
+      filename: urban_heat_simulation.xdmf
+      media_type: application/x-xdmf+xml
+      data_kind: volume_mesh
+      crs: EPSG:3006
+    table:
+      tier: expensive
+      role: simulation_field
+      reason: Exercises volume-field artifact handling only in an explicit FEniCS runtime.
+      dataset_key_suffix: urban-heat-simulation-xdmf
+      publish: false
+      required_python:
+        - dtcc_sim.datasets
+        - dolfinx
+        - mpi4py
+        - petsc4py
+      skip_reason: Requires FEniCSx/dolfinx and is too expensive for default or dev generation.
+
+  - id: urban_wind_simulation_pb
+    dataset: urban_wind_simulation
+    title: Urban Wind Simulation Protobuf
+    description: Expensive FEniCS urban wind scenario field for local CFD/table artifact experiments.
+    params:
+      equation_set: stokes
+      mode: steady
+      mesh_max_mesh_size: 25.0
+      mesh_domain_height: 80.0
+      format: pb
+    export:
+      format: pb
+      filename: urban_wind_simulation.pb
+      media_type: application/x-protobuf
+      data_kind: protobuf
+      crs: EPSG:3006
+    table:
+      tier: expensive
+      role: simulation_field
+      reason: Exercises CFD field presentation only in an explicit FEniCS runtime with manual runtime acceptance.
+      dataset_key_suffix: urban-wind-simulation-pb
+      publish: false
+      required_python:
+        - dtcc_sim.datasets
+        - dolfinx
+        - mpi4py
+        - petsc4py
+      skip_reason: Requires FEniCSx/dolfinx and is too expensive for default or dev generation.
